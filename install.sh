@@ -27,11 +27,11 @@ if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/package.json" ]; then
 else
   command -v git >/dev/null 2>&1 || die "git is required to bootstrap (https://git-scm.com)"
   if [ -d "$SRC_DIR/.git" ]; then
-    say "Updating $SRC_DIR…"
+    say "Updating ${SRC_DIR}…"
     git -C "$SRC_DIR" fetch --depth 1 origin main --quiet
     git -C "$SRC_DIR" reset --hard origin/main --quiet
   else
-    say "Cloning $REPO_URL → $SRC_DIR…"
+    say "Cloning $REPO_URL → ${SRC_DIR}…"
     mkdir -p "$(dirname "$SRC_DIR")"
     git clone --depth 1 "$REPO_URL" "$SRC_DIR"
   fi
