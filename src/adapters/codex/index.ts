@@ -75,8 +75,12 @@ const codex: AdapterDescriptor = {
  * is unavailable so the caller falls back to the recency window.
  */
 function openRollouts(): { file: string; mtime: number }[] | null {
-  const r = spawnSync('lsof', ['-nP', '-F', 'n', '-c', 'codex'],
-    { encoding: 'utf8', timeout: 3000, maxBuffer: 8 << 20 });
+  const r = spawnSync('lsof', ['-nP', '-F', 'n', '-c', 'codex'], {
+    encoding: 'utf8', timeout: 3000, maxBuffer: 8 << 20,
+    // Guarantee lsof resolves even under a minimal daemon PATH (launchd/systemd
+    // often omit /usr/sbin, where lsof lives).
+    env: { ...process.env, PATH: `${process.env.PATH || ''}:/usr/sbin:/usr/bin:/bin` },
+  });
   if (r.error || typeof r.stdout !== 'string') return null; // lsof missing → fall back
   const out: { file: string; mtime: number }[] = [];
   const seen = new Set<string>();
