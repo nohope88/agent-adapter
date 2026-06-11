@@ -37,7 +37,7 @@ curl -fsSL https://nohope88.github.io/agent-adapter/install.sh | bash
 irm https://nohope88.github.io/agent-adapter/install.ps1 | iex
 ```
 
-<!-- **From a checkout** (same script, run locally):
+**From a checkout** (same script, run locally):
 
 ```bash
 git clone https://github.com/nohope88/agent-adapter && cd agent-adapter
@@ -45,7 +45,7 @@ git clone https://github.com/nohope88/agent-adapter && cd agent-adapter
 .\install.ps1         # Windows (PowerShell)
 ```
 
-Either way it builds, **detects** installed agents, **wires their hooks**, and registers a background daemon (launchd / systemd-user / Scheduled Task). Re-runnable (a second run fetches latest + re-wires). Uninstall from a checkout with `./install.sh --uninstall` (`.\install.ps1 --uninstall` on Windows). -->
+Either way it builds, **detects** installed agents, **wires their hooks**, and registers a background daemon (launchd / systemd-user / Scheduled Task). Re-runnable (a second run fetches latest + re-wires). Uninstall from a checkout with `./install.sh --uninstall` (`.\install.ps1 --uninstall` on Windows). 
 
 ---
 
@@ -63,7 +63,7 @@ agent-adapter verify                 # acap-verify all adapters
 agent-adapter login --token <t> --commander wss://…   # store a Commander credential
 ```
 
-<!-- `status`/`answer`/etc. talk to the running hub's local control API (`http://127.0.0.1:7788`). -->
+`status`/`answer`/etc. talk to the running hub's local control API (`http://127.0.0.1:7788`).
 
 <!-- ---
 

@@ -20,12 +20,29 @@ export function detectReport(): { kind: string; installed: boolean; wired: boole
   }));
 }
 
+/**
+ * A node path that survives version upgrades. `process.execPath` is the
+ * version-pinned realpath (e.g. …/Cellar/node/25.8.1_1/bin/node on Homebrew,
+ * ~/.nvm/versions/node/vX/… on nvm); a later `brew upgrade` / version switch
+ * deletes it, silently breaking the daemon and every hook. Prefer a stable
+ * symlink that resolves to the SAME node we run now; fall back to execPath when
+ * none matches (e.g. nvm — no stable path, documented limitation).
+ */
+function stableNode(): string {
+  const exec = process.execPath;
+  if (path.basename(exec).includes('agent-adapter')) return exec; // packaged binary, not node
+  for (const c of ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']) {
+    try { if (fs.realpathSync(c) === exec) return c; } catch { /* not present */ }
+  }
+  return exec;
+}
+
 // ── hook invocation string ─────────────────────────────────────
 /** Command prefix the agent runs for each hook. Works for a packaged binary
  *  (`<bin> hook …`) or dev (`node <cli.js> hook …`). */
 function hookInvocation(): string {
   if (process.env.AGENT_ADAPTER_BIN) return `${q(process.env.AGENT_ADAPTER_BIN)} hook`;
-  const exec = process.execPath;
+  const exec = stableNode();
   if (path.basename(exec).includes('agent-adapter')) return `${q(exec)} hook`;
   const cli = path.resolve(__dirname, '..', 'cli.js');
   return `${q(exec)} ${q(cli)} hook`;
@@ -35,7 +52,7 @@ function startArgs(): string[] {
   // The daemon also serves the web dashboard (--web) so a freshly-installed
   // user can open it immediately; fail-open if web/ is absent (see cli.ts).
   if (process.env.AGENT_ADAPTER_BIN) return [process.env.AGENT_ADAPTER_BIN, 'start', '--web'];
-  const exec = process.execPath;
+  const exec = stableNode();
   if (path.basename(exec).includes('agent-adapter')) return [exec, 'start', '--web'];
   return [exec, path.resolve(__dirname, '..', 'cli.js'), 'start', '--web'];
 }
