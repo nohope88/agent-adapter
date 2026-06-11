@@ -32,10 +32,12 @@ function hookInvocation(): string {
 }
 
 function startArgs(): string[] {
-  if (process.env.AGENT_ADAPTER_BIN) return [process.env.AGENT_ADAPTER_BIN, 'start'];
+  // The daemon also serves the web dashboard (--web) so a freshly-installed
+  // user can open it immediately; fail-open if web/ is absent (see cli.ts).
+  if (process.env.AGENT_ADAPTER_BIN) return [process.env.AGENT_ADAPTER_BIN, 'start', '--web'];
   const exec = process.execPath;
-  if (path.basename(exec).includes('agent-adapter')) return [exec, 'start'];
-  return [exec, path.resolve(__dirname, '..', 'cli.js'), 'start'];
+  if (path.basename(exec).includes('agent-adapter')) return [exec, 'start', '--web'];
+  return [exec, path.resolve(__dirname, '..', 'cli.js'), 'start', '--web'];
 }
 
 // ── install / uninstall hooks ──────────────────────────────────

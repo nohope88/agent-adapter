@@ -54,7 +54,20 @@ say "Building…"
 npm run build
 
 say "Detecting agents and wiring hooks…"
-node dist/cli.js install
+node dist/cli.js install   # registers the daemon, which starts with --web (dashboard)
 
-say "Done. Start now with:  node \"$PROJ/dist/cli.js\" start --local"
-say "Check status with:     node \"$PROJ/dist/cli.js\" status"
+# The daemon (launchd/systemd) is starting the hub + dashboard in the background.
+# Wait for it to come up, then open it so a fresh install lands on the UI.
+WEB_URL="http://127.0.0.1:${WEB_PORT:-8787}"
+if command -v curl >/dev/null 2>&1; then
+  say "Waiting for the dashboard…"
+  for _ in $(seq 1 20); do curl -fsS "$WEB_URL" >/dev/null 2>&1 && break; sleep 0.5; done
+else
+  sleep 2
+fi
+if command -v open >/dev/null 2>&1; then open "$WEB_URL" >/dev/null 2>&1 || true
+elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$WEB_URL" >/dev/null 2>&1 || true
+fi
+
+say "Done. Dashboard: $WEB_URL"
+say "Check status with:  node \"$PROJ/dist/cli.js\" status"

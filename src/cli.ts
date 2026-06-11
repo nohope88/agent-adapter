@@ -43,9 +43,37 @@ async function start(rest: string[]): Promise<void> {
   process.stdout.write(
     `agent-adapter running (${local ? 'local' : 'uplink → ' + commanderUrl}). ` +
     `control: http://127.0.0.1:${PATHS.controlPort}  ·  Ctrl-C to stop\n`);
-  const shutdown = async () => { await hub.stop(); process.exit(0); };
+  const web = args.web ? await startWebUi(args) : null;
+  const shutdown = async () => { web?.kill(); await hub.stop(); process.exit(0); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+}
+
+/** Spawn the external web dashboard (web/server.js) as a child of the hub.
+ *  Fail-open: a missing or broken web UI must never take the adapter down. */
+async function startWebUi(args: Record<string, string | boolean>) {
+  const path = await import('path');
+  const fs = await import('fs');
+  const { spawn } = await import('child_process');
+  const server = path.resolve(__dirname, '..', 'web', 'server.js');
+  if (!fs.existsSync(server)) {
+    process.stderr.write(`web UI not found at ${server} — skipping --web\n`);
+    return null;
+  }
+  const webPort = String(typeof args['web-port'] === 'string' ? args['web-port'] : process.env.WEB_PORT || '8787');
+  const child = spawn(process.execPath, [server], {
+    // Point the dashboard's /api proxy at THIS hub's control port.
+    env: { ...process.env, WEB_PORT: webPort, AGENT_ADAPTER_CONTROL_PORT: String(PATHS.controlPort) },
+    stdio: 'inherit',
+  });
+  child.on('error', (e) => process.stderr.write(`web UI failed to start: ${String(e)}\n`));
+  const url = `http://127.0.0.1:${webPort}`;
+  process.stdout.write(`dashboard: ${url}\n`);
+  if (args.open) {
+    const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
+    try { spawn(opener, [url], { stdio: 'ignore', detached: true }).unref(); } catch { /* best-effort */ }
+  }
+  return child;
 }
 
 async function status(): Promise<void> {
@@ -85,7 +113,9 @@ async function install(): Promise<void> {
   const wired = inst.installHooks();
   inst.registerDaemon();
   process.stdout.write(`\nWired hooks for: ${wired.join(', ') || '(none)'}\n`);
-  process.stdout.write('Daemon registered. Next: `agent-adapter login --commander <url> --token <token>` (or run `start --local`).\n');
+  const webPort = process.env.WEB_PORT || '8787';
+  process.stdout.write(`Daemon registered — serving the web dashboard on http://127.0.0.1:${webPort}\n`);
+  process.stdout.write('Next: open the dashboard, or `agent-adapter login --commander <url> --token <token>` to uplink.\n');
 }
 
 async function uninstall(): Promise<void> {
@@ -127,7 +157,8 @@ async function login(rest: string[]): Promise<void> {
 function help(): void {
   process.stdout.write(`agent-adapter — listen to & react back to local AI coding agents
 
-  start [--local] [--commander <wss-url>]   run the hub (daemon entrypoint)
+  start [--local] [--commander <url>]       run the hub (daemon entrypoint)
+        [--web] [--web-port N] [--open]       …also serve the web dashboard
   status                                    show the live session roster
   answer <agentId> <choice>                 react to a waiting agent (e.g. yes)
   prompt <agentId> <text...>                send a prompt into an agent
