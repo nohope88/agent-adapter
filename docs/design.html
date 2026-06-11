@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Commander — Design</title>
+<style>
+  :root{
+    --bg:#0c0f14; --bg2:#11161f; --panel:#151c28; --panel2:#1b2433;
+    --line:#26344a; --ink:#e8eef7; --dim:#9fb0c6; --faint:#6b7c95;
+    --acc:#5ea1ff; --acc2:#7c5cff; --ok:#37d39b; --busy:#5ea1ff;
+    --warn:#ffb454; --err:#ff6b6b; --idle:#6b7c95; --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:radial-gradient(1200px 700px at 70% -10%,#16203033,transparent),var(--bg);
+       color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  a{color:var(--acc);text-decoration:none}
+  code,.mono{font-family:var(--mono);font-size:.86em}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px 120px}
+  header.hero{padding:72px 24px 40px;max-width:1080px;margin:0 auto}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--acc);margin:0 0 14px}
+  h1{font-size:46px;line-height:1.05;margin:0 0 14px;letter-spacing:-.02em}
+  h1 .grad{background:linear-gradient(92deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .tag{font-size:19px;color:var(--dim);max-width:760px;margin:0}
+  .lineage{margin-top:26px;padding:16px 18px;border:1px solid var(--line);border-left:3px solid var(--acc2);
+           border-radius:10px;background:var(--panel);color:var(--dim);max-width:820px}
+  .lineage b{color:var(--ink)}
+  nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin:34px 0 0}
+  nav.toc a{font-family:var(--mono);font-size:12px;padding:7px 12px;border:1px solid var(--line);border-radius:999px;color:var(--dim);background:var(--panel)}
+  nav.toc a:hover{border-color:var(--acc);color:var(--ink)}
+  section{margin-top:64px}
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+     border-top:1px solid var(--line);padding-top:30px;margin:0 0 8px}
+  h2 .n{color:var(--acc);margin-right:10px}
+  h3.lead{font-size:26px;margin:6px 0 18px;letter-spacing:-.01em}
+  p.note{color:var(--dim);max-width:820px}
+  .grid{display:grid;gap:16px}
+  .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:840px){.g3,.g2{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:20px}
+  .card h4{margin:0 0 6px;font-size:16px;display:flex;align-items:center;gap:8px}
+  .card .role{font-family:var(--mono);font-size:11px;color:var(--acc);letter-spacing:.08em;text-transform:uppercase}
+  .card p{margin:8px 0 0;color:var(--dim);font-size:13.5px}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);color:var(--dim)}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  figure{margin:24px 0 0;background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:18px;overflow:auto}
+  figcaption{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:12px;text-align:center}
+  pre{margin:0;background:#0a0d12;border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.55;color:#cdd9ea}
+  pre .k{color:#7c5cff} pre .s{color:#37d39b} pre .c{color:#5b6b82;font-style:italic} pre .p{color:#ffb454} pre .t{color:#5ea1ff}
+  .codecap{font-family:var(--mono);font-size:11px;color:var(--faint);margin:0 0 8px;letter-spacing:.05em}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--faint);font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+  td.mono,th.mono{font-family:var(--mono);font-size:12px}
+  .flow{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+  .step{display:flex;gap:14px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .step .num{flex:0 0 28px;height:28px;border-radius:8px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;font-weight:700;background:var(--panel2);border:1px solid var(--line)}
+  .step .who{font-family:var(--mono);font-size:11px;color:var(--acc);text-transform:uppercase;letter-spacing:.07em}
+  .step p{margin:3px 0 0;color:var(--dim);font-size:13.5px}
+  .up .num{color:var(--ok)} .down .num{color:var(--warn)}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0 0;font-size:12.5px;color:var(--dim)}
+  .legend span{display:flex;align-items:center;gap:7px}
+  ul.clean{margin:10px 0 0;padding-left:18px;color:var(--dim)} ul.clean li{margin:6px 0}
+  .warnbox{border:1px solid #4a2b2b;border-left:3px solid var(--err);background:#1a1113;border-radius:12px;padding:18px 20px;margin-top:18px}
+  .warnbox h4{margin:0 0 6px;color:#ffb0b0}
+  .warnbox p{margin:6px 0 0;color:#e7bcbc;font-size:13.5px}
+  .road{display:grid;gap:12px;grid-template-columns:repeat(5,1fr);margin-top:14px}
+  @media(max-width:840px){.road{grid-template-columns:1fr}}
+  .ms{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .ms .mn{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .ms.first{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset,0 8px 30px #5ea1ff22}
+  .ms h4{margin:6px 0 4px;font-size:15px} .ms p{margin:0;font-size:12.5px;color:var(--dim)}
+  .ms .badge{font-family:var(--mono);font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.1em}
+  .kgrid{display:grid;grid-template-columns:160px 1fr;gap:0;margin-top:10px}
+  .kgrid div{padding:9px 12px;border-bottom:1px solid var(--line)}
+  .kgrid .kk{font-family:var(--mono);font-size:12px;color:var(--acc)}
+  .kgrid .kv{color:var(--dim);font-size:13px}
+  .foot{margin-top:80px;border-top:1px solid var(--line);padding-top:24px;color:var(--faint);font-size:12.5px;font-family:var(--mono)}
+  .swatch-up{color:var(--ok)} .swatch-down{color:var(--warn)}
+
+  /* ── Beacon: simulated circular device ── */
+  .beacon-stage{display:flex;flex-direction:column;align-items:center;gap:16px;padding-top:4px}
+  .beacon{position:relative;width:300px;height:300px;border-radius:50%;padding:13px;
+    background:linear-gradient(145deg,#3b485c 0%,#222c3c 32%,#151d29 68%,#2c3848 100%);
+    box-shadow:0 32px 60px #000b, inset 0 2px 0 #ffffff1f, inset 0 -8px 20px #00000070;}
+  .beacon::before{content:"";position:absolute;inset:6px;border-radius:50%;background:linear-gradient(160deg,#0f141d,#0a0d12)}
+  .screen{position:absolute;inset:13px;border-radius:50%;overflow:hidden;background:#080b10;
+    box-shadow:inset 0 0 26px #000, inset 0 0 0 1px #1a2436, inset 0 8px 24px #00000088;z-index:1}
+  .screen::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
+    background:radial-gradient(140px 90px at 50% 10%, #ffffff12, transparent 72%)}
+  .frame{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:5px;text-align:center;padding:44px 38px;opacity:0;animation:beaconCycle 12s infinite}
+  .screen.manual .frame{animation:none}
+  .frame.f1{animation-delay:0s}.frame.f2{animation-delay:-9s}.frame.f3{animation-delay:-6s}.frame.f4{animation-delay:-3s}
+  @keyframes beaconCycle{0%{opacity:0}2.5%{opacity:1}22%{opacity:1}25%{opacity:0}100%{opacity:0}}
+  .scr-eyebrow{font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--faint)}
+  .scr-eyebrow.b{color:var(--busy)} .scr-eyebrow.a{color:var(--warn)}
+  .scr-title{font-size:15px;font-weight:600;color:var(--ink);line-height:1.12}
+  .scr-sub{font-family:var(--mono);font-size:10px;color:var(--dim)}
+  .scr-chips{display:flex;gap:5px;justify-content:center;margin-top:2px}
+  .scr-chip{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:6px;border:1px solid var(--line);color:var(--dim)}
+  .scr-chip.err{color:var(--err);border-color:#5a2b2b}
+  .scr-cost{font-family:var(--mono);font-size:12px;color:var(--ok);font-weight:600}
+  .scr-foot{font-family:var(--mono);font-size:9px;color:var(--faint);letter-spacing:.04em}
+  .scr-list{display:flex;flex-direction:column;gap:5px;width:148px;margin-top:2px}
+  .scr-row{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--ink)}
+  .scr-row .pct{margin-left:auto;color:var(--dim);font-size:10px}
+  .d{width:7px;height:7px;border-radius:50%;flex:0 0 7px}
+  .d.g{background:var(--ok)}.d.b{background:var(--busy)}.d.r{background:var(--err)}.d.a{background:var(--warn)}
+  .ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg);pointer-events:none}
+  .ring-bg{fill:none;stroke:#1a2436;stroke-width:3}
+  .ring-fg{fill:none;stroke:var(--busy);stroke-width:3;stroke-linecap:round;stroke-dasharray:133 290}
+  .frame.amber{box-shadow:inset 0 0 46px #ffb45422}
+  .scr-btns{display:flex;gap:10px;margin-top:5px}
+  .scr-btn{font-family:var(--mono);font-size:11px;padding:5px 17px;border-radius:9px;border:1px solid var(--line)}
+  .scr-btn.yes{color:var(--ok);border-color:#1f5a3a;background:#0e2418}
+  .scr-btn.no{color:var(--err);border-color:#5a2b2b;background:#221314}
+  .pulse{position:relative;width:60px;height:60px;display:grid;place-items:center;margin:2px 0}
+  .pulse .core{width:14px;height:14px;border-radius:50%;background:var(--busy);box-shadow:0 0 12px var(--busy)}
+  .pulse .lr{position:absolute;width:18px;height:18px;border-radius:50%;border:2px solid var(--busy);opacity:0;animation:beaconPulse 2.1s infinite ease-out}
+  .pulse .lr2{animation-delay:.7s}.pulse .lr3{animation-delay:1.4s}
+  @keyframes beaconPulse{0%{transform:scale(.5);opacity:.85}100%{transform:scale(3.3);opacity:0}}
+  .ptt{position:absolute;right:-3px;top:43%;width:8px;height:48px;border-radius:5px;z-index:2;
+    background:linear-gradient(#3c4a5e,#19202c);box-shadow:0 2px 5px #0009, inset 0 1px 0 #ffffff26}
+  .mic{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:3px;height:3px;border-radius:50%;
+    background:#33415a;box-shadow:-6px 0 #33415a,6px 0 #33415a;z-index:2}
+  .caliper{display:flex;align-items:center;gap:8px;color:var(--faint);font-family:var(--mono);font-size:11px}
+  .caliper .bar{width:90px;height:1px;background:var(--faint);opacity:.55}
+  .caliper .tick{width:1px;height:8px;background:var(--faint);opacity:.55}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+  .tabs button{font-family:var(--mono);font-size:10.5px;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;transition:.15s}
+  .tabs button:hover{color:var(--ink)}
+  .tabs button.on{border-color:var(--acc);color:var(--ink);background:#15233a}
+
+  /* ── Adapter standard + agent deep dives ── */
+  .lvl{font-family:var(--mono);font-size:10px;letter-spacing:.07em;padding:3px 9px;border-radius:6px;border:1px solid var(--acc2);color:var(--acc2);text-transform:uppercase;white-space:nowrap}
+  .agenthead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .agenthead h4{margin:0;font-size:19px}
+  .agenthead .src{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .dive{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px}
+  @media(max-width:840px){.dive{grid-template-columns:1fr}}
+  .dive .col h5{margin:0 0 6px;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .dive .col p{margin:0;color:var(--dim);font-size:13.5px}
+  .up-h{color:var(--ok)} .down-h{color:var(--warn)}
+  .cap{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid #245a3a;color:var(--ok);background:#0e2418}
+  .cap.no{border-color:#3a3030;color:var(--faint);background:transparent;opacity:.65}
+  .caps{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+  .quirk{color:var(--faint);font-size:12px;margin:12px 0 0}
+  table.matrix td.y{color:var(--ok);font-weight:600} table.matrix td.n{color:var(--faint)} table.matrix td.p{color:var(--warn)}
+
+  /* ── Tenancy entity box ── */
+  .tenant{border:1px solid var(--acc2);border-radius:14px;padding:0;overflow:hidden;background:linear-gradient(180deg,#171326,#11131f)}
+  .tenant-h{padding:12px 16px;font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--acc2);border-bottom:1px solid var(--line);background:#1a1530}
+  .tenant-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
+  @media(max-width:840px){.tenant-grid{grid-template-columns:1fr}}
+  .tcol{padding:16px;border-right:1px solid var(--line)}
+  .tcol:last-child{border-right:none}
+  .tcol .th{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:6px}
+  .tcol p{margin:0;color:var(--dim);font-size:12.5px}
+  .tenant-f{padding:12px 16px;border-top:1px solid var(--line);color:var(--dim);font-size:12.5px;background:#0f0c1a}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <p class="eyebrow">System Design · v0.1 draft · 2026-06-10</p>
+  <h1>Agent&nbsp;<span class="grad">Commander</span></h1>
+  <p class="tag">Many AI coding agents report their status to a central commander; the commander pushes a live view to a small ESP32 device, and your voice — captured on that device, transcribed by the commander — flows back as a prompt to the right agent.</p>
+
+  <div class="lineage">
+    <b>Lineage from <code>agent-status</code>.</b> agent-status is one machine, read-only, zero-network: it tails the files Claude Code writes and shows them locally. Agent&nbsp;Commander <b>inverts every one of those properties</b> — many machines, bidirectional, networked — but reuses the hard-won insight: <i>the cheapest way to know what an agent is doing is to read the state it already writes to disk.</i> The <code>SessionProvider</code> protocol becomes the <b>Agent Adapter</b>; the local <code>SessionStore</code> becomes a cloud <b>Commander</b>; the Commander board becomes a <b>physical device</b>.
+  </div>
+
+  <nav class="toc">
+    <a href="#arch">Architecture</a>
+    <a href="#components">Components</a>
+    <a href="#tenancy">Tenancy &amp; identity</a>
+    <a href="#flows">Data flows</a>
+    <a href="#transport">Transport</a>
+    <a href="#schemas">Message schemas</a>
+    <a href="#adapter">Adapter interface</a>
+    <a href="#standard">Adapter standard</a>
+    <a href="#agents">Agent deep dives</a>
+    <a href="#ui">Device UI protocol</a>
+    <a href="#audio">Audio path</a>
+    <a href="#security">Security</a>
+    <a href="#decisions">Decisions</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<!-- ============ ARCHITECTURE ============ -->
+<section id="arch">
+  <h2><span class="n">01</span>System architecture</h2>
+  <h3 class="lead">Three tiers, one bus, two directions</h3>
+  <p class="note">Adapters live on agent machines and speak the same interface regardless of agent type. The Commander is the only stateful, multi-tenant service. The device is a thin client: it renders templates it's handed and streams microphone audio. Each principal holds one authenticated WebSocket (WSS) connection to the Commander; bulk audio uses a second short-lived WS (see <a href="#audio">§11</a>), and stateless operations go over REST.</p>
+
+  <figure>
+  <svg viewBox="0 0 980 560" width="100%" role="img" aria-label="System architecture diagram">
+    <defs>
+      <marker id="arrUp" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#37d39b"/></marker>
+      <marker id="arrDn" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ffb454"/></marker>
+      <linearGradient id="gcard" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#151c28"/><stop offset="1" stop-color="#11161f"/></linearGradient>
+      <linearGradient id="gcmd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a2436"/><stop offset="1" stop-color="#181f2e"/></linearGradient>
+    </defs>
+
+    <!-- Tier label: agents -->
+    <text x="40" y="40" fill="#6b7c95" font-family="monospace" font-size="11" letter-spacing="2">AGENT MACHINES  ·  per tenant, many</text>
+    <!-- adapters -->
+    <g font-family="monospace" font-size="12" fill="#e8eef7">
+      <rect x="40"  y="56" width="160" height="74" rx="12" fill="url(#gcard)" stroke="#26344a"/>
+      <text x="56" y="82" fill="#5ea1ff" font-size="10">CLAUDE CODE</text>
+      <text x="56" y="102">adapter</text>
+      <text x="56" y="120" fill="#6b7c95" font-size="10">tail jsonl · tmux inject</text>
+
+      <rect x="220" y="56" width="160" height="74" rx="12" fill="url(#gcard)" stroke="#26344a"/>
+      <text x="236" y="82" fill="#5ea1ff" font-size="10">CODEX</text>
+      <text x="236" y="102">adapter</text>
+      <text x="236" y="120" fill="#6b7c95" font-size="10">log tail · sdk</text>
+
+      <rect x="400" y="56" width="160" height="74" rx="12" fill="url(#gcard)" stroke="#26344a"/>
+      <text x="416" y="82" fill="#5ea1ff" font-size="10">HERMES / OPENCLAW</text>
+      <text x="416" y="102">adapter</text>
+      <text x="416" y="120" fill="#6b7c95" font-size="10">native control API</text>
+
+      <rect x="600" y="56" width="120" height="74" rx="12" fill="url(#gcard)" stroke="#26344a" stroke-dasharray="4 4"/>
+      <text x="616" y="82" fill="#6b7c95" font-size="10">+ N more</text>
+      <text x="616" y="102" fill="#9fb0c6">adapter</text>
+    </g>
+    <text x="760" y="96" fill="#9fb0c6" font-family="monospace" font-size="11">one interface:</text>
+    <text x="760" y="114" fill="#37d39b" font-family="monospace" font-size="11">▲ report status</text>
+    <text x="760" y="130" fill="#ffb454" font-family="monospace" font-size="11">▼ accept prompt</text>
+
+    <!-- arrows agents <-> commander -->
+    <line x1="300" y1="130" x2="300" y2="210" stroke="#37d39b" stroke-width="2" marker-end="url(#arrUp)"/>
+    <line x1="340" y1="210" x2="340" y2="132" stroke="#ffb454" stroke-width="2" marker-end="url(#arrDn)"/>
+    <text x="356" y="180" fill="#6b7c95" font-family="monospace" font-size="10">WSS</text>
+
+    <!-- Commander -->
+    <rect x="120" y="214" width="740" height="150" rx="16" fill="url(#gcmd)" stroke="#3a4a66"/>
+    <text x="140" y="240" fill="#7c5cff" font-family="monospace" font-size="11" letter-spacing="2">COMMANDER  ·  multi-tenant cloud service</text>
+    <g font-family="monospace" font-size="11.5" fill="#e8eef7">
+      <rect x="140" y="256" width="150" height="44" rx="9" fill="#0e1420" stroke="#26344a"/><text x="156" y="283">Ingest + state</text>
+      <rect x="300" y="256" width="150" height="44" rx="9" fill="#0e1420" stroke="#26344a"/><text x="316" y="283">Fan-out / router</text>
+      <rect x="460" y="256" width="150" height="44" rx="9" fill="#0e1420" stroke="#26344a"/><text x="476" y="283">STT engine</text>
+      <rect x="620" y="256" width="150" height="44" rx="9" fill="#0e1420" stroke="#26344a"/><text x="636" y="283">Render-template</text>
+      <rect x="140" y="308" width="230" height="44" rx="9" fill="#0e1420" stroke="#26344a"/><text x="156" y="335">Auth · tenancy · pairing</text>
+      <rect x="380" y="308" width="230" height="44" rx="9" fill="#0e1420" stroke="#26344a"/><text x="396" y="335">WS gateway · authz</text>
+      <rect x="620" y="308" width="150" height="44" rx="9" fill="#0e1420" stroke="#26344a"/><text x="636" y="335">Audio gateway</text>
+    </g>
+
+    <!-- arrows commander <-> device -->
+    <line x1="450" y1="364" x2="450" y2="444" stroke="#ffb454" stroke-width="2" marker-end="url(#arrDn)"/>
+    <text x="466" y="400" fill="#6b7c95" font-family="monospace" font-size="10">template + data ▼</text>
+    <line x1="410" y1="444" x2="410" y2="366" stroke="#37d39b" stroke-width="2" marker-end="url(#arrUp)"/>
+    <text x="250" y="420" fill="#6b7c95" font-family="monospace" font-size="10">▲ audio · button events</text>
+
+    <!-- device -->
+    <text x="40" y="470" fill="#6b7c95" font-family="monospace" font-size="11" letter-spacing="2">DEVICE  ·  ESP32 thin client</text>
+    <rect x="350" y="476" width="240" height="70" rx="14" fill="url(#gcard)" stroke="#5ea1ff"/>
+    <text x="372" y="504" fill="#5ea1ff" font-family="monospace" font-size="10">BEACON</text>
+    <text x="372" y="524" fill="#e8eef7" font-family="monospace" font-size="12">render templates · mic · PTT</text>
+  </svg>
+  <figcaption>Green = status flowing up · Amber = commands flowing down. The device never talks to an agent directly; the Commander mediates every hop.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ COMPONENTS ============ -->
+<section id="components">
+  <h2><span class="n">02</span>Components</h2>
+  <h3 class="lead">What each tier owns</h3>
+  <div class="grid g3">
+    <div class="card">
+      <span class="role">tier 1 · agent machine</span>
+      <h4>Agent Adapter</h4>
+      <p>One small process per agent type. <b>Up:</b> derives status from whatever the agent writes (Claude Code → tail the jsonl, reusing agent-status's parser). <b>Down:</b> injects a prompt via whatever the agent supports — tmux send-keys, native API, or SDK re-drive. Authenticates to the Commander as a specific agent within a tenant. Stateless beyond its own session map.</p>
+    </div>
+    <div class="card">
+      <span class="role">tier 2 · cloud</span>
+      <h4>Commander</h4>
+      <p>The only stateful, multi-tenant service (<a href="#tenancy">§03</a>). Ingests status, holds the current snapshot per agent, fans out to the right devices, runs speech-to-text, routes transcribed prompts to the correct adapter, and owns auth / tenancy / device pairing. Decides <i>what</i> the device should render.</p>
+    </div>
+    <div class="card">
+      <span class="role">tier 3 · hardware</span>
+      <h4>Beacon (ESP32)</h4>
+      <p>Deliberately dumb. Holds one WS that receives "render this" messages and paints a fixed set of templates baked into firmware. Holds a push-to-talk button + mic; streams audio while held. Sends button/selection events back up. No business logic — the Commander drives the UX.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TENANCY ============ -->
+<section id="tenancy">
+  <h2><span class="n">03</span>Tenancy &amp; identity</h2>
+  <h3 class="lead">Multi-tenant at the core — there is no single-tenant mode</h3>
+  <p class="note">Tenancy is not a later milestone; it is the first invariant. <b>Every</b> user, device, and agent belongs to exactly one tenant, and isolation is enforced on every connection and every message from the first commit. The Commander never trusts a <code>tenantId</code> in a payload — it derives the tenant from the authenticated principal and stamps it on everything. A bug that lets one tenant see or command another is the highest-severity failure in the system.</p>
+
+  <figure>
+    <div class="tenant">
+      <div class="tenant-h">TENANT <span class="mono" style="color:var(--faint)">— the isolation boundary; owns all rows below</span></div>
+      <div class="tenant-grid">
+        <div class="tcol"><div class="th">Users</div><p>OIDC (Google/GitHub) or email → JWT scoped to <code>{tenant, role}</code>. Roles: owner · admin · member. Invite/revoke via dashboard.</p></div>
+        <div class="tcol"><div class="th">Devices (Beacons)</div><p>Enrolled by pairing → per-device mTLS cert bound to the tenant, optionally to a user. Revoke a cert → the device commands nothing.</p></div>
+        <div class="tcol"><div class="th">Agents (adapters)</div><p>Registered with a tenant-scoped API key → short-lived WS token. Owned by a user, shareable within the tenant. Carries its ACAP capabilities.</p></div>
+      </div>
+      <div class="tenant-f">Sessions, status snapshots, audit log — all keyed by <code>tenant_id</code>. Cross-tenant reference = hard reject + audit event.</div>
+    </div>
+  <figcaption>One tenant. Everything inside is invisible and unreachable from any other tenant — enforced in app-layer authz, the one place that already routes.</figcaption>
+  </figure>
+
+  <figure>
+  <table>
+    <tr><th>Principal</th><th>Authenticates with</th><th>Holds</th><th>Scope</th></tr>
+    <tr><td>User</td><td class="mono">OIDC / email</td><td class="mono">JWT (short) + refresh</td><td>tenant + role</td></tr>
+    <tr><td>Adapter</td><td class="mono">tenant API key</td><td class="mono">short-lived WS token</td><td>tenant + agentId + capabilities</td></tr>
+    <tr><td>Device</td><td class="mono">pairing → cert</td><td class="mono">mTLS client cert</td><td>tenant + deviceId</td></tr>
+  </table>
+  <figcaption>Three principal types, one rule: the credential fixes the tenant. Tokens are short-lived; certs are revocable.</figcaption>
+  </figure>
+
+  <div class="grid g3" style="margin-top:8px">
+    <div class="card"><span class="role">isolation</span><h4>Tenant-stamped, never trusted</h4><p>Every WS upgrade and REST call resolves a principal → one <code>tenantId</code>. The Commander stamps it onto each inbound message and rejects any <code>id</code> outside that tenant. Durable state is row-level partitioned by <code>tenant_id</code>; every query is tenant-filtered.</p></div>
+    <div class="card"><span class="role">authorization</span><h4>Within a tenant, still scoped</h4><p>A device may command an agent only if same tenant <i>and</i> device→agent ownership/ACL allows it. Roles gate dashboard actions (invite users, issue agent keys, revoke devices). Per-tenant quotas &amp; rate limits (agents, devices, STT minutes).</p></div>
+    <div class="card"><span class="role">scale</span><h4>Horizontal from day one</h4><p>Commander nodes are stateless; WS connections shard across them. Cross-node delivery (an adapter on node A → a device on node B) goes through <b>Redis pub/sub</b> keyed by tenant; <b>Postgres</b> holds tenant-partitioned durable state. Add nodes, not special cases.</p></div>
+  </div>
+
+  <figure>
+  <div class="flow">
+    <div class="step"><div class="num" style="color:var(--acc)">D</div><div><span class="who">Device pairing</span><p>Beacon boots → Wi-Fi setup (BLE / captive portal) → shows a 6-digit claim code → user enters it in the dashboard → Commander mints a device cert bound to that tenant.</p></div></div>
+    <div class="step"><div class="num" style="color:var(--acc)">A</div><div><span class="who">Agent onboarding</span><p>User creates a tenant-scoped agent key in the dashboard → adapter starts with it → exchanges it for a short-lived WS token at <code>/v1/agents/register</code>, advertising its ACAP level + capabilities.</p></div></div>
+  </div>
+  <figcaption>Both flows end with a credential that can only ever act inside one tenant.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ FLOWS ============ -->
+<section id="flows">
+  <h2><span class="n">04</span>Data flows</h2>
+  <h3 class="lead">Two loops, end to end</h3>
+
+  <div class="legend">
+    <span><span class="dot" style="background:var(--ok)"></span> Status&nbsp;up — the agent-status idea, over the wire</span>
+    <span><span class="dot" style="background:var(--warn)"></span> Command&nbsp;down — the novel, higher-risk path</span>
+  </div>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div>
+      <p class="codecap swatch-up">▲ STATUS UP</p>
+      <div class="flow">
+        <div class="step up"><div class="num">1</div><div><span class="who">Adapter</span><p>Agent writes a line to its transcript; adapter's tailer folds it into a status snapshot (tool, tokens, context%, waiting state).</p></div></div>
+        <div class="step up"><div class="num">2</div><div><span class="who">Adapter → WS</span><p>Sends the snapshot up its status channel. Throttled by a <code>uiEqual</code>-style gate so nothing is sent unless something visible changed.</p></div></div>
+        <div class="step up"><div class="num">3</div><div><span class="who">Commander</span><p>Updates per-agent state, decides which device(s) subscribe to this agent, picks the right template, and renders.</p></div></div>
+        <div class="step up"><div class="num">4</div><div><span class="who">Device</span><p>Receives <code>{template,data}</code>, paints the screen. An agent that flips to <i>waiting</i> can wake the screen / pulse an LED.</p></div></div>
+      </div>
+    </div>
+    <div>
+      <p class="codecap swatch-down">▼ COMMAND DOWN</p>
+      <div class="flow">
+        <div class="step down"><div class="num">1</div><div><span class="who">Device</span><p>User holds PTT, speaks. Device streams Opus audio frames to the audio gateway, tagged with the agent currently in focus.</p></div></div>
+        <div class="step down"><div class="num">2</div><div><span class="who">Commander · STT</span><p>Transcribes. May classify intent: a fresh <i>prompt</i>, an <i>answer</i> to a pending approval, or an <i>interrupt</i>.</p></div></div>
+        <div class="step down"><div class="num">3</div><div><span class="who">Commander · router</span><p>Authorizes (this device may command this agent?) and pushes the command down that agent's live WS connection.</p></div></div>
+        <div class="step down"><div class="num">4</div><div><span class="who">Adapter</span><p>Injects the prompt into the running agent via its mechanism, then publishes an <code>ack</code> (delivered / rejected).</p></div></div>
+        <div class="step down"><div class="num">5</div><div><span class="who">Device</span><p>Shows a confirm template ("sent → Refactor auth"), then the normal status loop reflects the agent acting on it.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRANSPORT ============ -->
+<section id="transport">
+  <h2><span class="n">05</span>Transport — WebSocket on one API stack</h2>
+  <h3 class="lead">Persistent WSS per principal · REST for stateless ops</h3>
+  <p class="note">The Commander is not a relay — it transforms every status message into a render decision and authorizes every command — so a pub/sub broker would add a hop without removing the need for the app server. Instead, each principal holds <b>one authenticated WebSocket</b> to the Commander, carrying typed messages both directions. Stateless operations (login, pairing, registration, history) go over <b>REST</b> on the same stack. Tenant isolation lives in <b>app-layer authz</b> — the authenticated principal is bound to one <code>tenantId</code>; no broker ACLs to configure. On (re)connect the server sends current state (replacing retained messages); a ping/pong heartbeat marks a principal offline (replacing last-will).</p>
+
+  <figure>
+  <table>
+    <tr><th>Connection</th><th>Endpoint</th><th>Down (server → client)</th><th>Up (client → server)</th></tr>
+    <tr><td>Adapter</td><td class="mono">wss://api/agent</td><td class="mono">hello · cmd</td><td class="mono">status · event · ack</td></tr>
+    <tr><td>Device</td><td class="mono">wss://api/device</td><td class="mono">hello · ui</td><td class="mono">input · audio.start</td></tr>
+    <tr><td>Audio</td><td class="mono">wss://api/audio</td><td class="mono">partial · final</td><td class="mono">opus frames</td></tr>
+  </table>
+  <figcaption>Each WS authenticates at the upgrade (token or mTLS) and is bound to one tenant + one id; the app enforces scope on every message. Audio is a separate, short-lived WS per push-to-talk session — see §11.</figcaption>
+  </figure>
+
+  <figure>
+  <table>
+    <tr><th>REST</th><th>Method</th><th>Purpose</th></tr>
+    <tr><td class="mono">/v1/auth/token</td><td class="mono">POST</td><td>Exchange device claim-code / agent key for a scoped WS token.</td></tr>
+    <tr><td class="mono">/v1/devices/pair</td><td class="mono">POST</td><td>Enroll a Beacon → mint per-device cert (see §12).</td></tr>
+    <tr><td class="mono">/v1/agents/register</td><td class="mono">POST</td><td>Register an adapter + advertise its capabilities.</td></tr>
+    <tr><td class="mono">/v1/history</td><td class="mono">GET</td><td>Past sessions / cost — for the web dashboard, not the Beacon.</td></tr>
+  </table>
+  <figcaption>One HTTP stack serves both the WS upgrades and the stateless REST surface — nothing extra to operate.</figcaption>
+  </figure>
+
+  <figure>
+  <p class="codecap">every WS message shares one envelope</p>
+<pre><span class="p">{</span> <span class="k">"v"</span>:<span class="t">1</span>, <span class="k">"type"</span>:<span class="s">"status"</span>, <span class="c">// status|event|cmd|ack|ui|input|audio.start|hello</span>
+  <span class="k">"id"</span>:<span class="s">"…"</span>, <span class="c">// agentId or deviceId, implied by the authed connection but echoed for logs</span>
+  <span class="k">"ts"</span>:<span class="s">"2026-06-10T22:14:07Z"</span>,
+  <span class="k">"data"</span>: <span class="p">{</span> <span class="c">/* payload per §06 */</span> <span class="p">}</span> <span class="p">}</span></pre>
+  <figcaption>The payloads in §06 are the <code>data</code> field for each <code>type</code>. Versioned so firmware and adapters evolve independently.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ SCHEMAS ============ -->
+<section id="schemas">
+  <h2><span class="n">06</span>Message schemas</h2>
+  <h3 class="lead">The wire contract — versioned, small, agent-agnostic</h3>
+  <p class="note">Every message carries <code>v</code> (schema version) so firmware and adapters can evolve independently. The status schema is the networked heir of agent-status's <code>SessionSnapshot</code> + <code>EnrichedSession</code>, flattened and trimmed to what a small screen and a router actually need.</p>
+
+  <div class="grid g2">
+    <div>
+      <p class="codecap">agent status — sent up (type:"status")</p>
+<pre><span class="p">{</span>
+  <span class="k">"v"</span>: <span class="t">1</span>,
+  <span class="k">"agentId"</span>: <span class="s">"claude-code:mbp.local:8123"</span>,
+  <span class="k">"kind"</span>: <span class="s">"claude-code"</span>,
+  <span class="k">"ts"</span>: <span class="s">"2026-06-10T22:14:07.182Z"</span>,
+  <span class="k">"status"</span>: <span class="s">"waiting"</span>,    <span class="c">// idle|busy|waiting|error|ended</span>
+  <span class="k">"title"</span>: <span class="s">"Refactor auth module"</span>,
+  <span class="k">"cwd"</span>: <span class="s">"~/repos/api"</span>,
+  <span class="k">"branch"</span>: <span class="s">"feat/auth"</span>,
+  <span class="k">"model"</span>: <span class="s">"claude-opus-4-8"</span>,
+  <span class="k">"mode"</span>: <span class="s">"default"</span>,       <span class="c">// permission mode</span>
+  <span class="k">"activeTool"</span>: <span class="p">{</span> <span class="k">"name"</span>:<span class="s">"Bash"</span>,
+                  <span class="k">"preview"</span>:<span class="s">"xcodebuild test"</span>,
+                  <span class="k">"elapsedMs"</span>:<span class="t">47000</span> <span class="p">}</span>,
+  <span class="k">"context"</span>: <span class="p">{</span> <span class="k">"used"</span>:<span class="t">142000</span>, <span class="k">"limit"</span>:<span class="t">200000</span> <span class="p">}</span>,
+  <span class="k">"cost"</span>: <span class="p">{</span> <span class="k">"usd"</span>:<span class="t">1.23</span> <span class="p">}</span>,
+  <span class="k">"waiting"</span>: <span class="p">{</span> <span class="k">"kind"</span>:<span class="s">"approval"</span>,
+                <span class="k">"text"</span>:<span class="s">"Run Bash xcodebuild?"</span>,
+                <span class="k">"options"</span>:[<span class="s">"yes"</span>,<span class="s">"no"</span>] <span class="p">}</span>,
+  <span class="k">"todos"</span>: [ <span class="p">{</span> <span class="k">"title"</span>:<span class="s">"wire STT"</span>, <span class="k">"status"</span>:<span class="s">"in_progress"</span> <span class="p">}</span> ]
+<span class="p">}</span></pre>
+    </div>
+    <div>
+      <p class="codecap">command — pushed down to an adapter (type:"cmd")</p>
+<pre><span class="p">{</span>
+  <span class="k">"v"</span>: <span class="t">1</span>,
+  <span class="k">"cmdId"</span>: <span class="s">"3f9c…"</span>,        <span class="c">// for ack correlation</span>
+  <span class="k">"ts"</span>: <span class="s">"2026-06-10T22:14:31Z"</span>,
+  <span class="k">"source"</span>: <span class="s">"device:beacon-01"</span>,
+  <span class="k">"intent"</span>: <span class="s">"prompt"</span>,    <span class="c">// prompt|answer|interrupt|mode</span>
+  <span class="k">"prompt"</span>: <span class="s">"run the tests again"</span>,
+  <span class="k">"answer"</span>: <span class="t">null</span>          <span class="c">// set for intent=answer</span>
+<span class="p">}</span></pre>
+
+      <p class="codecap" style="margin-top:18px">ack — sent up by the adapter (type:"ack")</p>
+<pre><span class="p">{</span>
+  <span class="k">"v"</span>:<span class="t">1</span>, <span class="k">"cmdId"</span>:<span class="s">"3f9c…"</span>,
+  <span class="k">"status"</span>:<span class="s">"delivered"</span>,  <span class="c">// delivered|rejected|nosession</span>
+  <span class="k">"detail"</span>:<span class="s">"injected into pty"</span>
+<span class="p">}</span></pre>
+
+      <p class="codecap" style="margin-top:18px">device input — button / selection</p>
+<pre><span class="p">{</span> <span class="k">"v"</span>:<span class="t">1</span>, <span class="k">"kind"</span>:<span class="s">"select"</span>,
+  <span class="k">"focusAgent"</span>:<span class="s">"claude-code:mbp.local:8123"</span>,
+  <span class="k">"choice"</span>:<span class="s">"yes"</span> <span class="p">}</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ADAPTER INTERFACE ============ -->
+<section id="adapter">
+  <h2><span class="n">07</span>Agent Adapter interface</h2>
+  <h3 class="lead">The bidirectional heir to <code>SessionProvider</code></h3>
+  <p class="note">agent-status's <code>SessionProvider</code> was one-way (<code>start()/stop()</code> + a stream out). The adapter adds the return path — <code>send()</code> — and a connection to the bus. The interface is deliberately tiny so a new agent is, once again, "one new file." Shown in language-neutral pseudocode; the adapter SDK language is open (Go/Rust for a portable single binary, or Swift to literally reuse agent-status's tailer for the Claude Code adapter).</p>
+  <figure>
+<pre><span class="c">// One per agent type. Hides HOW status is read and HOW prompts are injected.</span>
+<span class="k">interface</span> <span class="t">AgentAdapter</span> {
+  <span class="k">readonly</span> kind: <span class="t">string</span>            <span class="c">// "claude-code" | "codex" | "hermes" …</span>
+
+  <span class="c">// ── status up ─────────────────────────────────────────</span>
+  start(): <span class="t">AsyncStream</span>&lt;<span class="t">AgentStatus</span>&gt;   <span class="c">// tail files / API; emit on change</span>
+  stop(): <span class="t">void</span>
+
+  <span class="c">// ── command down ─────────────────────────────────────</span>
+  send(cmd: <span class="t">Command</span>): <span class="t">Promise</span>&lt;<span class="t">Ack</span>&gt;    <span class="c">// inject via tmux | API | SDK</span>
+  capabilities(): <span class="t">Set</span>&lt;<span class="t">Capability</span>&gt;       <span class="c">// {prompt, answer, interrupt, mode}</span>
+}
+
+<span class="c">// The runtime that every adapter shares — auth, reconnect, throttle, ACL scope.</span>
+<span class="k">class</span> <span class="t">AdapterRuntime</span> {
+  connect(apiURL, <span class="t">tenantCred</span>)        <span class="c">// wss://api/agent; mTLS/token, scoped to one tenant+agent</span>
+  bind(adapter: <span class="t">AgentAdapter</span>)         <span class="c">// pipes stream→"status" msgs, "cmd" msgs→send()</span>
+  <span class="c">// sends only when AgentStatus.coreEqual() says something visible changed</span>
+}</pre>
+  <figcaption>Per-adapter, mixed injection is satisfied by <code>send()</code> + <code>capabilities()</code>: the Claude Code adapter reports <code>{prompt}</code> via tmux; hermes might report <code>{prompt, interrupt, mode}</code> via its API. The Commander only routes to capabilities an adapter advertises.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ ADAPTER STANDARD ============ -->
+<section id="standard">
+  <h2><span class="n">08</span>Open adapter standard · ACAP</h2>
+  <h3 class="lead">One public contract, so anyone can add an agent</h3>
+  <p class="note">An adapter's only real job is to <b>normalize</b> one agent into the canonical status schema (<a href="#schemas">§06</a>) and accept canonical commands. <b>ACAP — the Agent&nbsp;Commander Adapter Protocol</b> — is the open, versioned contract that fixes the wire shape, the connection lifecycle, and the capability handshake, while leaving <i>how</i> you read status and inject prompts entirely to the adapter. Read state however the agent exposes it — file tail, log, API, SDK; ACAP standardizes only what crosses the wire.</p>
+
+  <h3 class="lead" style="font-size:18px;margin-top:28px">Conformance levels — ship at L0, grow upward</h3>
+  <figure>
+  <table>
+    <tr><th>Level</th><th>Name</th><th>Adds</th><th>Bar to implement</th></tr>
+    <tr><td class="mono">L0</td><td>Observer</td><td>status up only (read-only)</td><td>An afternoon — emit canonical status from whatever the agent already writes.</td></tr>
+    <tr><td class="mono">L1</td><td>Promptable</td><td>+ accept <code>prompt</code> commands</td><td>Wire one injection path (pty / API / SDK).</td></tr>
+    <tr><td class="mono">L2</td><td>Interactive</td><td>+ <code>answer</code> · <code>interrupt</code> · <code>mode</code></td><td>Answer approvals, cancel a run, switch permission mode.</td></tr>
+    <tr><td class="mono">L3</td><td>Rich</td><td>+ structured tool events · todos · per-message cost</td><td>Full-fidelity mapping (where the Claude Code adapter lands).</td></tr>
+  </table>
+  <figcaption>The Commander degrades gracefully: an L0 agent shows status with voice-prompt disabled; the device hides cost or todos an adapter doesn't provide. No capability is ever assumed.</figcaption>
+  </figure>
+
+  <div class="grid g3" style="margin-top:8px">
+    <div class="card"><span class="role">handshake</span><h4>Declare, don't assume</h4><p>On <code>register</code> (REST) and the WS <code>hello</code>, the adapter advertises its <code>level</code>, <code>capabilities</code> (intents it accepts) and <code>provides</code> (status fields it populates). The Commander tailors device UI and routing to exactly that.</p></div>
+    <div class="card"><span class="role">conformance harness</span><h4><code>acap-verify</code></h4><p>A mock Commander + recorded fixtures runs the handshake, validates every message against the schema, checks that claimed capabilities actually behave, and exercises reconnect + heartbeat. Pass → self-certify, without touching production.</p></div>
+    <div class="card"><span class="role">registry &amp; governance</span><h4>One PR to add an agent</h4><p>Adapters live in an open registry — each a folder with a manifest (<code>id</code>, <code>level</code>, maintainer). Passing <code>acap-verify</code> + a PR = listed. Everything is versioned by the message <code>v</code>; new fields are additive and optional.</p></div>
+  </div>
+
+  <figure>
+  <p class="codecap">adapter registration — POST /v1/agents/register, echoed back in the WS hello</p>
+<pre><span class="p">{</span>
+  <span class="k">"v"</span>:<span class="t">1</span>, <span class="k">"acap"</span>:<span class="s">"1.0"</span>,           <span class="c">// protocol version implemented</span>
+  <span class="k">"kind"</span>:<span class="s">"codex"</span>, <span class="k">"agentId"</span>:<span class="s">"codex:ci-box:4471"</span>,
+  <span class="k">"level"</span>:<span class="s">"L1"</span>,
+  <span class="k">"capabilities"</span>:[<span class="s">"prompt"</span>],                    <span class="c">// intents this adapter accepts</span>
+  <span class="k">"provides"</span>:[<span class="s">"status"</span>,<span class="s">"activeTool"</span>,<span class="s">"model"</span>,<span class="s">"tokens"</span>]  <span class="c">// status fields populated</span>
+<span class="p">}</span></pre>
+  <figcaption>From this alone the Commander knows: route prompts but not approvals, show tool + model + tokens, hide cost + todos this adapter doesn't emit — all without a line of agent-specific code in the core.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ AGENT DEEP DIVES ============ -->
+<section id="agents">
+  <h2><span class="n">09</span>Agent deep dives</h2>
+  <h3 class="lead">The same contract, four very different agents</h3>
+  <p class="note">Each adapter maps a native agent into ACAP. The spread below is the range the standard has to absorb — from a file-tailing agent with no input API (Claude Code) to API-native agents built to be driven (openclaw, hermes). The Commander reads the matrix from each adapter's handshake, never from hard-coded assumptions.</p>
+
+  <figure>
+  <table class="matrix">
+    <tr><th>Agent</th><th>Lvl</th><th>Status source</th><th>Inject via</th><th>prompt</th><th>answer</th><th>intr</th><th>mode</th><th>cost</th><th>todos</th></tr>
+    <tr><td>Claude Code</td><td class="mono">L3</td><td class="mono">jsonl + pid.json tail</td><td class="mono">pty · Agent SDK</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td></tr>
+    <tr><td>Codex</td><td class="mono">L1–2</td><td class="mono">session log tail</td><td class="mono">codex exec · MCP · pty</td><td class="y">✓</td><td class="p">~</td><td class="p">~</td><td class="n">—</td><td class="p">~</td><td class="n">—</td></tr>
+    <tr><td>openclaw</td><td class="mono">L3</td><td class="mono">native event stream</td><td class="mono">native input API</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td></tr>
+    <tr><td>hermes</td><td class="mono">L2</td><td class="mono">control socket / RPC</td><td class="mono">control socket / RPC</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="p">~</td><td class="n">—</td><td class="p">~</td></tr>
+  </table>
+  <figcaption>✓ supported · ~ mechanism-dependent / partial · — not yet. Levels reflect a realistic first adapter, not a ceiling.</figcaption>
+  </figure>
+
+  <!-- Claude Code -->
+  <div class="card" style="margin-top:18px">
+    <div class="agenthead"><span class="dot" style="background:var(--ok)"></span><h4>Claude Code</h4><span class="lvl">L3 · Rich</span><span class="src">stock interactive CLI · no native input API</span></div>
+    <div class="dive">
+      <div class="col"><h5 class="up-h">▲ Status — read from disk</h5><p>Reuses agent-status's <code>TranscriptTailer</code> verbatim: tail <code>~/.claude/projects/&lt;cwd&gt;/&lt;sessionId&gt;.jsonl</code> for rich state and <code>~/.claude/sessions/&lt;pid&gt;.json</code> for coarse status. Derives tool + duration, tokens / cost (per-message model pricing), context% incl. <code>[1m]</code>, permission mode, todos, and the waiting / approval banner.</p></div>
+      <div class="col"><h5 class="down-h">▼ Inject — mixed, no native API</h5><p><b>pty / tmux send-keys</b> into the stock interactive process: type the prompt, send option keys to answer an approval, <code>ESC</code> to interrupt. Or the <b>Claude Agent SDK</b> headless, where the adapter owns the loop and feeds prompts directly — cleanest, but the agent then runs under the harness.</p></div>
+    </div>
+    <div class="caps"><span class="cap">prompt</span><span class="cap">answer</span><span class="cap">interrupt</span><span class="cap">mode</span></div>
+    <p class="quirk"><b>Quirks the mapper handles:</b> <code>aiTitle</code> key (not <code>title</code>); sidechain messages billed but excluded from turns/context; <code>TodoWrite</code> replaces the list while <code>TaskCreate/Update</code> are incremental; <code>gitBranch</code> stamped per record; <code>[1m]</code> = 1M-token window.</p>
+  </div>
+
+  <!-- Codex -->
+  <div class="card" style="margin-top:16px">
+    <div class="agenthead"><span class="dot" style="background:var(--busy)"></span><h4>Codex</h4><span class="lvl">L1–L2</span><span class="src">OpenAI Codex CLI · non-interactive drive available</span></div>
+    <div class="dive">
+      <div class="col"><h5 class="up-h">▲ Status — read from log</h5><p>Tail Codex's per-session rollout / log file (JSONL) under <code>~/.codex/</code>, mapping its turn, tool and usage events to the canonical schema. Exact paths and keys are confirmed per installed Codex version — the mapping table is the bulk of this adapter's work, since Codex's schema differs from Claude's.</p></div>
+      <div class="col"><h5 class="down-h">▼ Inject — CLI / MCP / pty</h5><p><b><code>codex exec</code></b> (and resume) for a non-interactive drive, Codex's <b>MCP server</b> interface, or <b>pty send-keys</b> into the interactive TUI. Which one decides whether <code>answer</code>/<code>interrupt</code> are clean or best-effort.</p></div>
+    </div>
+    <div class="caps"><span class="cap">prompt</span><span class="cap">answer</span><span class="cap">interrupt</span><span class="cap no">mode</span><span class="cap no">todos</span></div>
+    <p class="quirk"><b>Note:</b> until the mapping is filled in, Codex can ship at <b>L0</b> (status only) the same afternoon and grow to L1/L2 as injection is wired.</p>
+  </div>
+
+  <!-- openclaw -->
+  <div class="card" style="margin-top:16px">
+    <div class="agenthead"><span class="dot" style="background:var(--ok)"></span><h4>openclaw</h4><span class="lvl">L3 · Rich</span><span class="src">API-native agent · designed to be driven</span></div>
+    <div class="dive">
+      <div class="col"><h5 class="up-h">▲ Status — subscribe</h5><p>The ideal case: no file-tailing. The adapter subscribes to openclaw's native event stream (WS/SSE) and forwards a thin mapping — events arrive already structured. Concrete endpoints are defined by the openclaw project.</p></div>
+      <div class="col"><h5 class="down-h">▼ Inject — native API</h5><p>Commands map straight onto openclaw's input/control API (HTTP or RPC). Because it was built API-first, the full intent set — <code>prompt</code>, <code>answer</code>, <code>interrupt</code>, <code>mode</code> — is available cleanly.</p></div>
+    </div>
+    <div class="caps"><span class="cap">prompt</span><span class="cap">answer</span><span class="cap">interrupt</span><span class="cap">mode</span><span class="cap">cost</span><span class="cap">todos</span></div>
+    <p class="quirk"><b>Why it matters:</b> openclaw shows ACAP at its best — when an agent cooperates, the adapter is a few hundred lines of mapping over a stream. It's the template for new agents to aim at.</p>
+  </div>
+
+  <!-- hermes -->
+  <div class="card" style="margin-top:16px">
+    <div class="agenthead"><span class="dot" style="background:var(--busy)"></span><h4>hermes</h4><span class="lvl">L2 · Interactive</span><span class="src">daemon-style agent · local control socket</span></div>
+    <div class="dive">
+      <div class="col"><h5 class="up-h">▲ Status — socket / RPC</h5><p>A long-running daemon the adapter queries or subscribes to over a control socket / local RPC. The adapter is a thin RPC client mapping hermes state to canonical fields; cost &amp; todos are partial until hermes surfaces them.</p></div>
+      <div class="col"><h5 class="down-h">▼ Inject — same socket</h5><p>Prompts, approval answers and interrupts go back down the same control channel. Permission-mode switching is mechanism-dependent. Endpoint specifics are owned by the hermes project.</p></div>
+    </div>
+    <div class="caps"><span class="cap">prompt</span><span class="cap">answer</span><span class="cap">interrupt</span><span class="cap no">mode</span><span class="cap no">cost</span></div>
+    <p class="quirk"><b>Pattern:</b> hermes represents the daemon class — an always-on agent with a local control plane the adapter wraps.</p>
+  </div>
+
+  <!-- on-ramp -->
+  <div class="card" style="margin-top:16px;border-style:dashed">
+    <div class="agenthead"><span class="dot" style="background:var(--acc2)"></span><h4>Your agent here</h4><span class="lvl" style="border-color:var(--acc);color:var(--acc)">L0 in an afternoon</span></div>
+    <p style="color:var(--dim);margin:12px 0 0;font-size:14px">Emit canonical status from whatever your agent already writes → that's L0, read-only, on the board immediately. Add <code>send()</code> for L1. Run <code>acap-verify ./adapters/youragent</code>, open a PR to the registry, and it ships. The hard parts — transport, auth, reconnect, fan-out, STT, the device — are already done. <b>An adapter is a mapping, not a system.</b></p>
+  </div>
+</section>
+
+<!-- ============ DEVICE UI ============ -->
+<section id="ui">
+  <h2><span class="n">10</span>Device UI protocol</h2>
+  <h3 class="lead">Server-driven UI — fixed templates, dynamic data</h3>
+  <p class="note">The Beacon is a <b>circular ~6 cm display</b>, so templates are designed circular-safe — content centred, the perimeter reserved as a gauge. The firmware ships a small, fixed set of templates; the Commander never sends layout, only <code>{template, data}</code>. This keeps firmware stable (no OTA to change a screen), keeps payloads tiny, and lets all UX logic live server-side. New screens are rare and deliberate. The device on the right is a live simulation — it auto-cycles, or tap a label to pin one.</p>
+
+  <div class="grid g2">
+    <div>
+      <table>
+        <tr><th>Template</th><th>When the Commander sends it</th></tr>
+        <tr><td class="mono">agent_list</td><td>Default. Roster of agents with status dots.</td></tr>
+        <tr><td class="mono">agent_detail</td><td>One agent focused — tool, context%, cost.</td></tr>
+        <tr><td class="mono">waiting_prompt</td><td>Agent blocked on approval — shows question + options.</td></tr>
+        <tr><td class="mono">listening</td><td>PTT held — mic level, "listening…".</td></tr>
+        <tr><td class="mono">confirm</td><td>Command delivered — "sent → {agent}".</td></tr>
+        <tr><td class="mono">error</td><td>Agent errored / lost connection.</td></tr>
+      </table>
+<pre style="margin-top:14px"><span class="c">// Commander → device/{id}/ui</span>
+<span class="p">{</span> <span class="k">"v"</span>:<span class="t">1</span>, <span class="k">"template"</span>:<span class="s">"waiting_prompt"</span>,
+  <span class="k">"data"</span>:<span class="p">{</span> <span class="k">"agent"</span>:<span class="s">"Refactor auth"</span>,
+          <span class="k">"text"</span>:<span class="s">"Run Bash xcodebuild?"</span>,
+          <span class="k">"options"</span>:[<span class="s">"yes"</span>,<span class="s">"no"</span>],
+          <span class="k">"accent"</span>:<span class="s">"amber"</span> <span class="p">}</span> <span class="p">}</span></pre>
+    </div>
+    <div>
+      <!-- simulated circular device -->
+      <div class="beacon-stage">
+        <div class="beacon" role="img" aria-label="Beacon device simulation, circular screen">
+          <div class="screen">
+            <!-- f1 · agent_list -->
+            <div class="frame f1">
+              <div class="scr-eyebrow">● 5 AGENTS · IDLE</div>
+              <div class="scr-list">
+                <div class="scr-row"><i class="d g"></i>Design mini…<span class="pct">19%</span></div>
+                <div class="scr-row"><i class="d g"></i>Review SKILL<span class="pct">29%</span></div>
+                <div class="scr-row"><i class="d b"></i>Install rele…<span class="pct">17%</span></div>
+                <div class="scr-row"><i class="d r"></i>Cadcode<span class="pct">err</span></div>
+              </div>
+            </div>
+            <!-- f2 · agent_detail, perimeter = ctx gauge -->
+            <div class="frame f2">
+              <svg class="ring" viewBox="0 0 100 100" aria-hidden="true">
+                <circle class="ring-bg" cx="50" cy="50" r="46"/>
+                <circle class="ring-fg" cx="50" cy="50" r="46"/>
+              </svg>
+              <div class="scr-eyebrow b">● WORKING</div>
+              <div class="scr-title">Review Cadcode</div>
+              <div class="scr-sub">Bash · xcodebuild · 47s</div>
+              <div class="scr-chips"><span class="scr-chip err">bypass</span><span class="scr-chip">opus-4-8</span></div>
+              <div class="scr-cost">$13.70</div>
+              <div class="scr-foot">46% ctx · 3.53M tok</div>
+            </div>
+            <!-- f3 · waiting_prompt -->
+            <div class="frame f3 amber">
+              <div class="scr-eyebrow a">⚠ NEEDS YOU</div>
+              <div class="scr-title">Refactor auth</div>
+              <div class="scr-sub">Run Bash xcodebuild?</div>
+              <div class="scr-btns"><span class="scr-btn yes">yes</span><span class="scr-btn no">no</span></div>
+            </div>
+            <!-- f4 · listening -->
+            <div class="frame f4">
+              <div class="scr-eyebrow b">● LISTENING</div>
+              <div class="pulse"><span class="lr"></span><span class="lr lr2"></span><span class="lr lr3"></span><span class="core"></span></div>
+              <div class="scr-sub" style="color:var(--acc)">“run the tests again…”</div>
+            </div>
+          </div>
+          <span class="ptt" aria-hidden="true"></span>
+          <span class="mic" aria-hidden="true"></span>
+        </div>
+        <div class="caliper"><span class="tick"></span><span class="bar"></span><span class="tick"></span>≈ 6 cm Ø</div>
+        <div class="tabs" role="tablist">
+          <button data-f="auto" class="on">auto-cycle</button>
+          <button data-f="1">agent_list</button>
+          <button data-f="2">agent_detail</button>
+          <button data-f="3">waiting</button>
+          <button data-f="4">listening</button>
+        </div>
+        <p class="note" style="font-size:12px;text-align:center;max-width:340px;margin:2px auto 0">Status colours mirror agent-status's Commander board — <b style="color:var(--warn)">amber</b> needs you, <b style="color:var(--busy)">blue</b> working, <b style="color:var(--ok)">green</b> idle, <b style="color:var(--err)">red</b> error. On a round face the <b>screen edge doubles as the context-window gauge</b> (§10/f2). Tap a label to pin a template.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ AUDIO ============ -->
+<section id="audio">
+  <h2><span class="n">11</span>Audio path</h2>
+  <h3 class="lead">Out-of-band from the control connection</h3>
+  <p class="note">Streaming audio over the device's control WS would head-of-line-block status and UI traffic behind big binary frames. Instead, push-to-talk uses a dedicated, short-lived second WS: the device announces intent on its control connection, then opens an audio WS straight to the Commander's audio gateway.</p>
+  <div class="flow" style="max-width:860px">
+    <div class="step down"><div class="num">1</div><div><span class="who">control WS</span><p>On PTT-down, device sends <code>type:"audio.start"</code> with the focused agentId. Commander replies with a one-time <code>wss://api/audio</code> token.</p></div></div>
+    <div class="step down"><div class="num">2</div><div><span class="who">audio ws</span><p>Device streams <b>Opus</b> frames (≈16 kHz mono, ~12–24 kbps) over WebSocket/TLS while the button is held. ESP32 can encode Opus; raw PCM is the fallback if CPU-bound.</p></div></div>
+    <div class="step down"><div class="num">3</div><div><span class="who">STT</span><p>Gateway feeds frames to streaming STT (managed API for v1; self-hosted whisper later). Partial transcripts can stream back to the <code>listening</code> template for live feedback.</p></div></div>
+    <div class="step down"><div class="num">4</div><div><span class="who">router</span><p>On PTT-up, final transcript → intent classify → command published to the focused agent. Loop rejoins <a href="#flows">§04 ▼ step 3</a>.</p></div></div>
+  </div>
+</section>
+
+<!-- ============ SECURITY ============ -->
+<section id="security">
+  <h2><span class="n">12</span>Security model</h2>
+  <h3 class="lead">Voice → remote code execution, by design</h3>
+  <div class="warnbox">
+    <h4>The core threat</h4>
+    <p>An agent with a Bash tool will run whatever prompt it's handed. Anyone who can push a <code>cmd</code> down an agent's connection effectively has a shell on that machine. So the multi-tenant identity and isolation of <a href="#tenancy">§03</a> are not optional hardening — they are the foundation the rest of the system stands on. There is no "insecure mode" to start from; the first connection a principal makes is already tenant-scoped and authenticated.</p>
+  </div>
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card"><h4>Identity &amp; transport</h4>
+      <p>mTLS or per-principal tokens presented at the WS upgrade for every adapter and device. WSS everywhere. Each principal is bound to exactly one <code>tenantId</code> and one id.</p></div>
+    <div class="card"><h4>Tenant scoping</h4>
+      <p>The authenticated principal fixes the tenant; the Commander stamps it on every inbound message and refuses any id outside that tenant. Authz lives in one place — the app layer that already routes — not split across broker config.</p></div>
+    <div class="card"><h4>Command authorization</h4>
+      <p>The Commander checks device→agent ownership within the tenant before routing any prompt. Optional per-agent confirmation step for high-blast-radius modes (e.g. bypass-permissions).</p></div>
+    <div class="card"><h4>Device pairing</h4>
+      <p>Onboarding mints a per-device cert (captive-portal/BLE enroll → short-lived claim code → cert). Lost device → revoke its cert; it can no longer command anything.</p></div>
+  </div>
+  <p class="note" style="margin-top:14px">Security review is continuous, not a phase: every change to routing, auth, or the command path is reviewed against the cross-tenant and RCE threat models before it ships.</p>
+</section>
+
+<!-- ============ DECISIONS ============ -->
+<section id="decisions">
+  <h2><span class="n">13</span>Decisions</h2>
+  <h3 class="lead">Locked choices — the perfect solution, committed</h3>
+  <p class="note">No phases, no open questions. These are the decisions the design is built on; each links to the section that lives it.</p>
+  <figure>
+  <table>
+    <tr><th>Area</th><th>Decision</th><th>Why</th></tr>
+    <tr><td>Tenancy</td><td>Multi-tenant core; no single-tenant mode (<a href="#tenancy">§03</a>)</td><td>Isolation is an invariant, not a feature to add. Voice→RCE makes a cross-tenant leak catastrophic.</td></tr>
+    <tr><td>Transport</td><td>WebSocket on one TLS API stack; REST for stateless ops (<a href="#transport">§05</a>)</td><td>The Commander transforms every message, so a broker's relay value is wasted; one stack = one auth model.</td></tr>
+    <tr><td>Scale</td><td>Stateless Commander nodes · Redis pub/sub fan-out · Postgres row-level tenancy</td><td>WS connections shard across nodes; cross-node delivery and durable state both stay tenant-scoped.</td></tr>
+    <tr><td>Adapter standard</td><td>ACAP 1.0 + <code>acap-verify</code> + open registry (<a href="#standard">§08</a>)</td><td>Anyone adds an agent at L0 in an afternoon; capabilities are declared, never assumed.</td></tr>
+    <tr><td>Adapter language</td><td>Go — one portable static binary per machine</td><td>Trivial cross-compile + first-class WS. The Claude Code adapter reimplements agent-status's small jsonl parser in Go rather than shipping a Swift runtime.</td></tr>
+    <tr><td>STT</td><td>Managed streaming STT (Deepgram/Whisper-API class), per-tenant quota</td><td>Lowest latency to ship; the interface is pluggable so self-hosted whisper can drop in behind it later.</td></tr>
+    <tr><td>Audio</td><td>Opus 16 kHz mono over a dedicated WS; PCM fallback (<a href="#audio">§11</a>)</td><td>Keeps bulk audio off the control connection; Opus fits the ESP32-S3's budget.</td></tr>
+    <tr><td>Device</td><td>ESP32-S3 + ~2.1″ round LCD (GC9A01-class, 240×240), ~6 cm Ø, PTT + I²S mic (<a href="#ui">§10</a>)</td><td>Cheap, round face suits the perimeter context gauge, ample for one focused agent.</td></tr>
+    <tr><td>Focus model</td><td>One agent in focus per device; rotate by tap/encoder; voice targets the focused agent; a "needs you" agent auto-promotes to focus</td><td>A 6 cm screen shows one agent well; removes ambiguity about where a spoken prompt lands.</td></tr>
+  </table>
+  <figcaption>Change any of these and the affected section changes with it — that's the contract this document keeps.</figcaption>
+  </figure>
+</section>
+
+<p class="foot">Agent Commander · v0.2 · multi-tenant core · ~/repos/agent-commander/design.html · descended from agent-status</p>
+
+</div>
+
+<script>
+(function(){
+  var stage = document.querySelector('.beacon-stage');
+  if(!stage) return;
+  var screen = stage.querySelector('.screen');
+  var frames = Array.prototype.slice.call(screen.querySelectorAll('.frame'));
+  var tabs   = Array.prototype.slice.call(stage.querySelectorAll('.tabs button'));
+  tabs.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      tabs.forEach(function(t){ t.classList.toggle('on', t === btn); });
+      var f = btn.getAttribute('data-f');
+      if(f === 'auto'){
+        screen.classList.remove('manual');
+        frames.forEach(function(fr){ fr.style.opacity = ''; });
+      } else {
+        screen.classList.add('manual');
+        frames.forEach(function(fr, i){ fr.style.opacity = (String(i+1) === f) ? '1' : '0'; });
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

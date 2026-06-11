@@ -1,0 +1,9 @@
+{
+  "id": "gemini",
+  "name": "Gemini CLI",
+  "level": "L0",
+  "maintainer": "agent-adapter",
+  "statusSource": "process baseline (~/.gemini detected); rich hooks TODO",
+  "inject": "pty best-effort",
+  "notes": "No confirmed hook format yet — ships at L0 via the process-fallback layer; upgrade to hooks once Gemini CLI's mechanism is verified."
+}

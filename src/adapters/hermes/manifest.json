@@ -1,0 +1,9 @@
+{
+  "id": "hermes",
+  "name": "Hermes Agent",
+  "level": "L1",
+  "maintainer": "agent-adapter",
+  "statusSource": "process baseline; control socket / log TODO",
+  "inject": "native control socket (controlEndpoint)",
+  "notes": "Daemon-style agent with a local control plane. Process-fallback gives working/idle; wire its control socket/RPC for rich status + inject."
+}

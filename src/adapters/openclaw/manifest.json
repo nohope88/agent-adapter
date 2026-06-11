@@ -1,0 +1,9 @@
+{
+  "id": "openclaw",
+  "name": "OpenClaw",
+  "level": "L1",
+  "maintainer": "agent-adapter",
+  "statusSource": "session-file poll (~/.openclaw/sessions); native event stream TODO",
+  "inject": "native control API (controlEndpoint)",
+  "notes": "API-native agent. Poller emits working/idle from session-file mtime; wire its real event stream + control endpoint to reach L3."
+}

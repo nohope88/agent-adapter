@@ -1,0 +1,9 @@
+{
+  "id": "codex",
+  "name": "OpenAI Codex CLI",
+  "level": "L2",
+  "maintainer": "agent-adapter",
+  "statusSource": "hooks (~/.codex/hooks.json) → ingest socket",
+  "inject": "pty + hook-return",
+  "notes": "Event/field mapping confirmed per installed Codex version; session files under ~/.codex/sessions."
+}

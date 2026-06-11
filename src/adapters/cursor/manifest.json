@@ -1,0 +1,9 @@
+{
+  "id": "cursor",
+  "name": "Cursor",
+  "level": "L2",
+  "maintainer": "agent-adapter",
+  "statusSource": "hooks (~/.cursor/hooks.json) → ingest socket",
+  "inject": "hook-return (permission gating) + pty best-effort",
+  "notes": "VS Code-based; uses conversation_id, ephemeral pids — bind by workspace, never pid."
+}

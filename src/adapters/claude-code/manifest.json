@@ -1,0 +1,9 @@
+{
+  "id": "claude-code",
+  "name": "Claude Code",
+  "level": "L3",
+  "maintainer": "agent-adapter",
+  "statusSource": "hooks (~/.claude/settings.json) → ingest socket",
+  "inject": "pty / tmux send-keys + hook-return for approvals",
+  "notes": "Richest adapter — verified event/field mapping."
+}
