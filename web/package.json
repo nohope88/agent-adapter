@@ -1,0 +1,10 @@
+{
+  "name": "agent-adapter-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "External web dashboard for the Agent Adapter — a standalone client of the hub's local control API. Not part of the core adapter.",
+  "bin": { "agent-adapter-web": "server.js" },
+  "scripts": {
+    "start": "node server.js"
+  }
+}

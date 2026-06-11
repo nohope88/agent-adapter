@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Adapter — Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◎</span>
+      <h1>Agent Adapter</h1>
+    </div>
+    <div class="status-bar">
+      <span id="counts" class="counts"></span>
+      <span id="conn" class="conn conn--off">connecting…</span>
+    </div>
+  </header>
+
+  <main id="board" class="board">
+    <p id="empty" class="empty">
+      No active sessions yet.<br />
+      An agent appears here the moment it fires an event (and disappears after ~30 min idle).
+    </p>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
