@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
 import { AdapterDescriptor } from '../types';
 import { CanonicalEvent, HookEvent } from '../../protocol';
 import { AGENT_DIRS } from '../../util/paths';
@@ -23,10 +24,11 @@ export interface CodexDerived {
 
 /**
  * Codex (codex_cli_rs) has no hook system that runs our script — it appends a
- * per-session rollout JSONL under ~/.codex/sessions/YYYY/MM/DD/. We poll the
- * recently-written rollout files and derive working/idle/waiting from their
- * event stream. Verified against Codex CLI 0.38.0. (config.toml `notify` is a
- * separate, coarse mechanism we intentionally don't touch.)
+ * per-session rollout JSONL under ~/.codex/sessions/YYYY/MM/DD/. We surface the
+ * conversations a live Codex process currently holds open (via lsof) and derive
+ * working/idle/waiting from each one's event stream. When a conversation's file
+ * is released we end it promptly. Verified against Codex CLI 0.38.0. Where lsof
+ * isn't available (e.g. Windows) we fall back to a recency window.
  */
 const codex: AdapterDescriptor = {
   kind: 'codex',
@@ -36,24 +38,29 @@ const codex: AdapterDescriptor = {
   inject: { channel: 'pty', hookReturn: true },
   detectDir: AGENT_DIRS.codex,
   poll: (emit) => {
-    const tracked = new Map<string, CodexStatus>(); // sessionId → last emitted status
+    const tracked = new Map<string, { status: CodexStatus; id: string }>(); // rollout file → state
     const tick = () => {
       const now = Date.now();
-      const live = new Set<string>();
-      for (const { file, mtime } of recentRollouts(now)) {
+      const files = openRollouts() ?? timeWindowRollouts(now); // live conversations, else recency window
+      const seen = new Set<string>();
+      for (const { file, mtime } of files) {
         let text: string;
         try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
         const d = deriveFromRollout(text, mtime, now, sessionIdFromName(path.basename(file)));
         if (!d) continue;
-        live.add(d.sessionId);
-        if (!tracked.has(d.sessionId)) emit(metaEvent(d, 'SessionStart'));
-        if (tracked.get(d.sessionId) !== d.status) {
-          emit(statusEvent(d));
-          tracked.set(d.sessionId, d.status);
+        seen.add(file);
+        const prev = tracked.get(file);
+        if (!prev) emit(metaEvent(d, 'SessionStart'));
+        if (!prev || prev.status !== d.status) emit(statusEvent(d));
+        tracked.set(file, { status: d.status, id: d.sessionId });
+      }
+      // a conversation whose file is no longer open → it closed; end it now.
+      for (const [file, t] of [...tracked]) {
+        if (!seen.has(file)) {
+          emit({ v: 1, kind: 'codex', event: 'SessionEnd', sessionId: t.id });
+          tracked.delete(file);
         }
       }
-      // forget sessions that aged out of the window; the store's TTL ends them.
-      for (const id of [...tracked.keys()]) if (!live.has(id)) tracked.delete(id);
     };
     const timer = setInterval(tick, POLL_MS);
     if (timer.unref) timer.unref();
@@ -62,8 +69,31 @@ const codex: AdapterDescriptor = {
   },
 };
 
-/** Rollout files (recursively) written within SHOW_MS, newest first. */
-function recentRollouts(now: number): { file: string; mtime: number }[] {
+/**
+ * Rollout files a live process currently holds open (`lsof -c codex`) — the
+ * authoritative "this conversation is running" signal. Returns null when lsof
+ * is unavailable so the caller falls back to the recency window.
+ */
+function openRollouts(): { file: string; mtime: number }[] | null {
+  const r = spawnSync('lsof', ['-nP', '-F', 'n', '-c', 'codex'],
+    { encoding: 'utf8', timeout: 3000, maxBuffer: 8 << 20 });
+  if (r.error || typeof r.stdout !== 'string') return null; // lsof missing → fall back
+  const out: { file: string; mtime: number }[] = [];
+  const seen = new Set<string>();
+  for (const line of r.stdout.split('\n')) {
+    if (line.charCodeAt(0) !== 110) continue; // lsof -F: file-name fields start with 'n'
+    const p = line.slice(1);
+    if (seen.has(p) || !p.startsWith(SESSIONS_DIR + path.sep) || !/rollout-.*\.jsonl$/.test(p)) continue;
+    let mtime: number;
+    try { mtime = fs.statSync(p).mtimeMs; } catch { continue; }
+    seen.add(p);
+    out.push({ file: p, mtime });
+  }
+  return out;
+}
+
+/** Fallback: rollout files (recursively) written within SHOW_MS, newest first. */
+function timeWindowRollouts(now: number): { file: string; mtime: number }[] {
   let entries: string[];
   try { entries = fs.readdirSync(SESSIONS_DIR, { recursive: true }) as string[]; }
   catch { return []; }
