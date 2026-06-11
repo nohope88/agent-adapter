@@ -26,16 +26,26 @@ This is **Tier 1 (the Agent Adapter)** from `design.html`. It is an **ACAP clien
 
 ## Install
 
-**From a checkout** (builds from source; needs Node ≥ 22):
+**One-liner** (needs Node ≥ 22 and `git`). The script clones the repo into `~/.agent-adapter/src`, builds, and installs:
 
 ```bash
+# macOS / Linux
+curl -fsSL https://nohope88.github.io/agent-adapter/install.sh | bash
+```
+```powershell
+# Windows (PowerShell)
+irm https://nohope88.github.io/agent-adapter/install.ps1 | iex
+```
+
+**From a checkout** (same script, run locally):
+
+```bash
+git clone https://github.com/nohope88/agent-adapter && cd agent-adapter
 ./install.sh          # macOS / Linux
 .\install.ps1         # Windows (PowerShell)
 ```
 
-It builds, **detects** installed agents, **wires their hooks**, and registers a background daemon (launchd / systemd-user / Scheduled Task). Re-runnable. Remove with `./install.sh --uninstall`.
-
-The hosted one-liner (`curl -fsSL https://…/install.sh | bash`) is the same script behind a URL — host `install.sh` + a self-contained binary (`bun build --compile`) to enable it. Not hosted yet.
+Either way it builds, **detects** installed agents, **wires their hooks**, and registers a background daemon (launchd / systemd-user / Scheduled Task). Re-runnable (a second run fetches latest + re-wires). Uninstall from a checkout with `./install.sh --uninstall` (`.\install.ps1 --uninstall` on Windows).
 
 ---
 
