@@ -3,7 +3,7 @@
   "name": "OpenAI Codex CLI",
   "level": "L2",
   "maintainer": "agent-adapter",
-  "statusSource": "hooks (~/.codex/hooks.json) → ingest socket",
+  "statusSource": "poll rollout JSONL (~/.codex/sessions/**/rollout-*.jsonl) → ingest socket",
   "inject": "pty + hook-return",
-  "notes": "Event/field mapping confirmed per installed Codex version; session files under ~/.codex/sessions."
+  "notes": "codex_cli_rs has no hook system that runs our script; status is derived by polling the per-session rollout event stream (verified Codex CLI 0.38.0). config.toml `notify` is a separate coarse mechanism we don't touch."
 }

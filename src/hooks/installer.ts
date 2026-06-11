@@ -16,7 +16,7 @@ export function detectReport(): { kind: string; installed: boolean; wired: boole
   return ALL_ADAPTERS.map((a) => ({
     kind: a.kind,
     installed: dirExists(a.detectDir),
-    wired: Boolean(a.hooks),
+    wired: Boolean(a.hooks || a.poll), // hooks OR a poller = actively monitored (not just process-baseline)
   }));
 }
 
