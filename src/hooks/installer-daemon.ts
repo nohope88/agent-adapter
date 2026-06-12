@@ -9,10 +9,12 @@ import { logger } from '../util/log';
 const log = logger('install');
 
 function startArgs(): string[] {
-  if (process.env.AGENT_ADAPTER_BIN) return [process.env.AGENT_ADAPTER_BIN, 'start', '--web'];
+  // The daemon runs the headless adapter only. The web dashboard is opt-in
+  // (`agent-adapter start --web`), never part of the installed service.
+  if (process.env.AGENT_ADAPTER_BIN) return [process.env.AGENT_ADAPTER_BIN, 'start'];
   const exec = stableNode();
-  if (path.basename(exec).includes('agent-adapter')) return [exec, 'start', '--web'];
-  return [exec, path.resolve(__dirname, '..', 'cli.js'), 'start', '--web'];
+  if (path.basename(exec).includes('agent-adapter')) return [exec, 'start'];
+  return [exec, path.resolve(__dirname, '..', 'cli.js'), 'start'];
 }
 
 export function registerPlatformDaemon(): void {

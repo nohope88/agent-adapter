@@ -119,9 +119,9 @@ async function install(): Promise<void> {
   const wired = inst.installHooks();
   inst.registerDaemon();
   process.stdout.write(`\nWired hooks for: ${wired.join(', ') || '(none)'}\n`);
-  const webPort = process.env.WEB_PORT || '8787';
-  process.stdout.write(`Daemon registered — serving the web dashboard on http://127.0.0.1:${webPort}\n`);
-  process.stdout.write('Next: open the dashboard, or `agent-adapter login --commander <url> --token <token>` to uplink.\n');
+  process.stdout.write('Daemon registered (runs the headless adapter).\n');
+  process.stdout.write('Next: `agent-adapter login --token <cmdr_ak_…>` — the adapter starts once you log in.\n');
+  process.stdout.write('Optional dashboard: `agent-adapter start --web`.\n');
 }
 
 async function uninstall(): Promise<void> {

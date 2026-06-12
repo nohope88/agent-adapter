@@ -54,5 +54,7 @@ npm run build
 Say "Detecting agents and wiring hooks…"
 node dist\cli.js install
 
-Say "Done. Start now with:  node `"$Proj\dist\cli.js`" start --local"
-Say "Check status with:     node `"$Proj\dist\cli.js`" status"
+Say "Done. Log in to start the adapter:"
+Say "  node `"$Proj\dist\cli.js`" login --token <cmdr_ak_…>"
+Say "Then check status:   node `"$Proj\dist\cli.js`" status"
+Say "Optional dashboard:  node `"$Proj\dist\cli.js`" start --web"
