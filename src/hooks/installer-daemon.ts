@@ -1,0 +1,80 @@
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { execFileSync } from 'child_process';
+import { PATHS, isWindows } from '../util/paths';
+import { stableNode } from '../util/node';
+import { logger } from '../util/log';
+
+const log = logger('install');
+
+function startArgs(): string[] {
+  if (process.env.AGENT_ADAPTER_BIN) return [process.env.AGENT_ADAPTER_BIN, 'start', '--web'];
+  const exec = stableNode();
+  if (path.basename(exec).includes('agent-adapter')) return [exec, 'start', '--web'];
+  return [exec, path.resolve(__dirname, '..', 'cli.js'), 'start', '--web'];
+}
+
+export function registerPlatformDaemon(): void {
+  if (process.env.AGENT_ADAPTER_SKIP_DAEMON) return;
+  try {
+    if (process.platform === 'darwin') registerLaunchd();
+    else if (process.platform === 'linux') registerSystemd();
+    else if (isWindows) registerSchtasks();
+  } catch (e) {
+    log.warn('daemon registration failed (run `agent-adapter start` manually)', String(e));
+  }
+}
+
+function registerLaunchd(): void {
+  const plist = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.agent-adapter.plist');
+  const [prog, ...args] = startArgs();
+  const argXml = [prog, ...args].map((a) => `    <string>${esc(a)}</string>`).join('\n');
+  fs.mkdirSync(path.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.agent-adapter</string>
+  <key>ProgramArguments</key><array>
+${argXml}
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>${esc(PATHS.log)}</string>
+  <key>StandardOutPath</key><string>${esc(PATHS.log)}</string>
+</dict></plist>\n`);
+  try { execFileSync('launchctl', ['unload', plist], { stdio: 'ignore' }); } catch { /* noop */ }
+  execFileSync('launchctl', ['load', plist], { stdio: 'ignore' });
+  log.info(`launchd service installed: ${plist}`);
+}
+
+function registerSystemd(): void {
+  const dir = path.join(os.homedir(), '.config', 'systemd', 'user');
+  fs.mkdirSync(dir, { recursive: true });
+  const unit = path.join(dir, 'agent-adapter.service');
+  const exec = startArgs().map(q).join(' ');
+  fs.writeFileSync(unit, `[Unit]
+Description=Agent Adapter
+After=network.target
+
+[Service]
+ExecStart=${exec}
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+`);
+  try { execFileSync('systemctl', ['--user', 'enable', '--now', 'agent-adapter.service'], { stdio: 'ignore' }); }
+  catch (e) { log.warn('systemctl enable failed', String(e)); }
+  log.info(`systemd user service installed: ${unit}`);
+}
+
+function registerSchtasks(): void {
+  const cmd = startArgs().map(q).join(' ');
+  execFileSync('schtasks', ['/Create', '/F', '/SC', 'ONLOGON', '/TN', 'AgentAdapter', '/TR', cmd], { stdio: 'ignore' });
+  log.info('scheduled task AgentAdapter created (onlogon)');
+}
+
+function q(s: string): string { return /[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s; }
+function esc(s: string): string { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }

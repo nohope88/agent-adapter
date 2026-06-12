@@ -157,7 +157,9 @@ export class Hub {
 
   private broadcast(s: AgentStatus): void {
     const line = `event: status\ndata: ${JSON.stringify(s)}\n\n`;
-    for (const res of this.sse) { try { res.write(line); } catch { this.sse.delete(res); } }
+    for (const res of this.sse) {
+      try { res.write(line); } catch { this.sse.delete(res); }
+    }
   }
 }
 

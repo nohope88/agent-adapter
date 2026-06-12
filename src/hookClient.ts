@@ -30,7 +30,6 @@ export async function runHook(argv: string[]): Promise<void> {
   } catch { /* fail-open */ }
 
   process.stdout.write(renderDecision(neutral, decision));
-  process.exit(0);
 }
 
 function normalize(kind: string, event: CanonicalEvent, p: Record<string, unknown>): HookEvent {

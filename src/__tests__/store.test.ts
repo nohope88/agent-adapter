@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionStore } from '../store';
 import { HookEvent } from '../protocol';
@@ -40,4 +40,38 @@ test('onChange listener fires on emit', () => {
 test('drops events missing sessionId/kind', () => {
   const st = new SessionStore();
   assert.equal(st.apply({ v: 1, event: 'SessionStart' } as HookEvent), null);
+});
+
+test('get, byAgentId, and prune mark ended then drop', () => {
+  mock.timers.enable({ apis: ['setInterval', 'Date'] });
+  try {
+    const st = new SessionStore({ staleMs: 1000 });
+    st.apply(ev({ sessionId: 'p', event: 'SessionStart' }));
+    assert.ok(st.get('p'));
+    assert.ok(st.byAgentId(st.get('p')!.agentId));
+    assert.equal(st.byAgentId('no-such-agent'), undefined);
+    st.startPrune();
+    mock.timers.setTime(Date.now() + 61_000);
+    mock.timers.tick(60_000);
+    st.stopPrune();
+    assert.equal(st.roster().length, 0);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('get returns a session snapshot', () => {
+  const st = new SessionStore();
+  st.apply(ev({ event: 'SessionStart', title: 'hello' }));
+  assert.equal(st.get('s')?.title, 'hello');
+});
+
+test('onChange unsubscribe stops notifications', () => {
+  const st = new SessionStore();
+  let n = 0;
+  const off = st.onChange(() => n++);
+  st.apply(ev({ event: 'PreToolUse', tool: 'Bash' }));
+  off();
+  st.apply(ev({ event: 'Stop' }));
+  assert.equal(n, 1);
 });

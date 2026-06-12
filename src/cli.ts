@@ -6,7 +6,7 @@ import { PATHS } from './util/paths';
  * agent-adapter CLI. Subcommands lazy-require their deps so `hook` stays light
  * (it's invoked on every agent event and must be fast).
  */
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   switch (cmd) {
     case 'hook':            return (await import('./hookClient')).runHook(rest);
@@ -206,4 +206,6 @@ function flags(rest: string[]): Record<string, string | boolean> {
   return out;
 }
 
-main().catch((e) => { process.stderr.write(`${String(e?.stack || e)}\n`); process.exit(1); });
+if (require.main === module) {
+  main().catch((e) => { process.stderr.write(`${String(e?.stack || e)}\n`); process.exit(1); });
+}

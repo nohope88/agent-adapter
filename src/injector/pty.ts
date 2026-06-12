@@ -86,7 +86,6 @@ function samePath(a: string, b: string): boolean {
 }
 
 function tmuxSendLiteral(pane: string, text: string): Promise<string> {
-  // -l sends text literally (no key-name interpretation).
   return run('tmux', ['send-keys', '-t', pane, '-l', text]);
 }
 function tmuxSendKeys(pane: string, key: string): Promise<string> {

@@ -45,10 +45,13 @@ Pick up here (NOT done):
 npm install            # Node >= 22 required (uses the global WebSocket)
 npm run build          # tsc → dist/  (must be zero errors)
 node dist/cli.js verify   # acap-verify all adapters (exit 0 = green)
-npm test               # unit + hub integration tests (node:test, no extra deps)
-npm run ci             # build + verify + test — exactly what GitHub Actions runs
+npm test               # functional unit + hub integration tests (node:test, no extra deps)
+npm run test:coverage  # same tests + a 100%-LINE-coverage gate on the core library modules
+npm run ci             # build + verify + test:coverage — the strict local gate (run before pushing)
 ```
-**CI:** `.github/workflows/ci.yml` runs the above on every push/PR across macOS/Linux/Windows × Node 22/24. Keep it green — add a test under `src/__tests__/` for any new core logic.
+**CI:** `.github/workflows/ci.yml` runs `npm test` (functional) across macOS/Linux/Windows × Node 22/24, plus a Linux-only `coverage` job that runs `npm run test:coverage`. Keep both green — add a test under `src/__tests__/` for any new core logic.
+
+**Coverage gate (honest 100% line):** enforced on the *library* modules only (statemachine, store, ingest, hub, runtime, hookClient, installer, injector/index, util/*, adapters/registry + descriptors, protocol, binding, acapVerify). Deliberately **excluded** (see `package.json` `test:coverage` `--test-coverage-exclude`): the process entrypoint `cli.ts` and the OS-spawning leaves `installer-daemon.ts`, `injector/pty.ts`, `adapters/process-fallback.ts`, `adapters/codex`, `adapters/openclaw` — these spawn real daemons/ptys/processes and are validated by the integration & subprocess tests, not line %. Gate runs on Linux because some library modules have platform-divergent branches (POSIX unix-socket vs Windows TCP) that can't both be hit on one OS. Prefer a real test over a `node:coverage ignore`; there are currently **zero** such directives in the tree.
 **Isolated smoke test (no real agent configs touched):**
 ```bash
 export AGENT_ADAPTER_HOME=$(mktemp -d) AGENT_ADAPTER_CONTROL_PORT=7799

@@ -1,7 +1,8 @@
 name: CI
 
-# Runs on every push and PR. Builds, runs acap-verify, and runs the test suite
-# (unit + the hub integration test) across macOS / Linux / Windows on Node 22 & 24.
+# Runs on every push and PR. Builds, runs acap-verify, and runs the functional
+# test suite across macOS / Linux / Windows on Node 22 & 24. A separate Linux-only
+# `coverage` job enforces 100% line coverage on the core library modules.
 on:
   push:
     branches: ["**"]
@@ -37,3 +38,29 @@ jobs:
 
       - name: Test (unit + integration)
         run: npm test
+
+  # Coverage gate runs on Linux only: it enforces 100% line coverage on the core
+  # library modules, several of which have platform-divergent branches (POSIX
+  # unix-socket vs Windows TCP) that can't all be exercised on a single OS.
+  # The process entrypoint (cli) and the OS-spawning leaf adapters
+  # (installer-daemon, pty, process-fallback, codex, openclaw) are excluded —
+  # they're validated by the integration/subprocess tests above, not line %.
+  coverage:
+    name: coverage · 100% line (core libs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          cache: npm
+
+      - name: Install
+        run: npm ci --omit=optional
+
+      - name: Build
+        run: npm run build
+
+      - name: Test + 100% line coverage gate
+        run: npm run test:coverage

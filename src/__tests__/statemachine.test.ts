@@ -71,3 +71,50 @@ test('status priority waiting > working > idle > ended', () => {
 test('agentIdOf is kind:host:sessionId', () => {
   assert.match(agentIdOf('claude-code', 'abc'), /^claude-code:.+:abc$/);
 });
+
+test('PermissionRequest → waiting with default options', () => {
+  const s = reduce(undefined, ev({ event: 'PermissionRequest', tool: 'Bash' }));
+  assert.equal(s.status, 'waiting');
+  assert.deepEqual(s.waiting?.options, ['yes', 'no']);
+});
+
+test('Notification → waiting input banner', () => {
+  const s = reduce(undefined, ev({ event: 'Notification', message: 'need input' }));
+  assert.equal(s.status, 'waiting');
+  assert.equal(s.waiting?.text, 'need input');
+});
+
+test('PostToolUse clears activeTool', () => {
+  let s = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { command: 'ls -la' } }));
+  s = reduce(s, ev({ event: 'PostToolUse' }));
+  assert.equal(s.status, 'working');
+  assert.equal(s.activeTool, undefined);
+});
+
+test('waitingFromTool maps object options and preview fallbacks', () => {
+  const s = reduce(undefined, ev({
+    event: 'PreToolUse', tool: 'AskQuestion',
+    toolInput: { question: 'Q?', options: [{ label: 'a' }, 'b'] },
+  }));
+  assert.deepEqual(s.waiting?.options, ['a', 'b']);
+  const p = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { description: 'run' } }));
+  assert.equal(p.activeTool?.preview, 'run');
+  const j = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { nested: { a: 1 } } }));
+  assert.ok(j.activeTool?.preview);
+});
+
+test('previewOf returns undefined for null toolInput', () => {
+  const s = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: null }));
+  assert.equal(s.activeTool?.preview, undefined);
+});
+
+test('previewOf handles string input and empty options on Notification', () => {
+  const s = reduce(undefined, ev({ event: 'Notification', message: 'x', options: [] }));
+  assert.equal(s.waiting?.options.length, 0);
+});
+
+test('previewOf returns undefined when toolInput is not JSON-serializable', () => {
+  // BigInt makes JSON.stringify throw → the catch returns undefined.
+  const s = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { big: 10n } as never }));
+  assert.equal(s.activeTool?.preview, undefined);
+});

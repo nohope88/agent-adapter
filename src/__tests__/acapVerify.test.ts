@@ -31,3 +31,15 @@ test('declaring capabilities with no inject path fails', () => {
   const r = verify(d);
   assert.equal(r.pass, false);
 });
+
+test('L2 without answer/interrupt and hooks sanity checks fail', () => {
+  const d = {
+    kind: 'z', level: 'L2', capabilities: ['prompt'], provides: [],
+    inject: { channel: 'pty', hookReturn: false }, detectDir: '/tmp',
+    hooks: { configPath: '', format: 'codex', events: {} },
+  } as unknown as AdapterDescriptor;
+  const r = verify(d);
+  assert.equal(r.pass, false);
+  assert.ok(r.problems.some((p) => p.includes('answer')));
+  assert.ok(r.problems.some((p) => p.includes('hooks.configPath')));
+});

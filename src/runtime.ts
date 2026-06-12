@@ -39,6 +39,7 @@ export class Uplink {
   private readonly maxBackoff = 30_000;
   private buffer = new Map<string, AgentStatus>(); // coalesced while offline
   private token: string | undefined;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private opts: RuntimeOpts) {
     this.token = opts.credential?.token;
@@ -64,12 +65,14 @@ export class Uplink {
 
   async stop(): Promise<void> {
     this.closing = true;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     try { this.ws?.close(); } catch { /* noop */ }
     this.ws = null;
   }
 
   // ── internals ───────────────────────────────────────────────
   private open(): void {
+    if (this.closing) return;
     const url = withToken(this.opts.commanderUrl!, this.token);
     log.info(`connecting ${redact(url)}`);
     const WSImpl: any = (globalThis as any).WebSocket;
@@ -145,8 +148,9 @@ export class Uplink {
     const jitter = Math.floor(this.backoff * 0.2 * pseudoRandom());
     const delay = Math.min(this.backoff, this.maxBackoff) + jitter;
     log.info(`reconnect in ${delay}ms`);
-    const t = setTimeout(() => this.open(), delay);
-    if (t.unref) t.unref();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.open(); }, delay);
+    if (this.reconnectTimer.unref) this.reconnectTimer.unref();
     this.backoff = Math.min(this.backoff * 2, this.maxBackoff);
   }
 

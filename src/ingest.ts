@@ -31,21 +31,19 @@ export class IngestServer {
     return new Promise((resolve, reject) => {
       const onErr = (e: unknown) => reject(e);
       this.server!.once('error', onErr);
-      if (isWindows) {
-        this.server!.listen(PATHS.ingestTcpPort, '127.0.0.1', () => {
-          this.server!.off('error', onErr);
-          log.info(`listening on tcp 127.0.0.1:${PATHS.ingestTcpPort}`);
-          resolve();
-        });
-      } else {
-        try { if (fs.existsSync(PATHS.ingestSock)) fs.unlinkSync(PATHS.ingestSock); } catch { /* noop */ }
-        this.server!.listen(PATHS.ingestSock, () => {
-          this.server!.off('error', onErr);
-          try { fs.chmodSync(PATHS.ingestSock, 0o600); } catch { /* noop */ }
-          log.info(`listening on unix ${PATHS.ingestSock}`);
-          resolve();
-        });
-      }
+      const onListening = () => {
+        this.server!.off('error', onErr);
+        // Unix socket: lock it to the owner. (No-op on the Windows TCP path.)
+        if (!isWindows) { try { fs.chmodSync(PATHS.ingestSock, 0o600); } catch { /* noop */ } }
+        log.info(isWindows
+          ? `listening on tcp 127.0.0.1:${PATHS.ingestTcpPort}`
+          : `listening on unix ${PATHS.ingestSock}`);
+        resolve();
+      };
+      if (!isWindows) { try { if (fs.existsSync(PATHS.ingestSock)) fs.unlinkSync(PATHS.ingestSock); } catch { /* noop */ } }
+      // Windows has no unix sockets in the hook's shell → TCP loopback; POSIX → unix socket.
+      const opts = isWindows ? { port: PATHS.ingestTcpPort, host: '127.0.0.1' } : { path: PATHS.ingestSock };
+      this.server!.listen(opts, onListening);
     });
   }
 

@@ -41,7 +41,8 @@ const codex: AdapterDescriptor = {
     const tracked = new Map<string, { status: CodexStatus; id: string }>(); // rollout file → state
     const tick = () => {
       const now = Date.now();
-      const files = openRollouts() ?? timeWindowRollouts(now); // live conversations, else recency window
+      const open = openRollouts();
+      const files = (open && open.length) ? open : timeWindowRollouts(now); // live conversations, else recency window
       const seen = new Set<string>();
       for (const { file, mtime } of files) {
         let text: string;

@@ -11,8 +11,9 @@
     "start": "node dist/cli.js start",
     "dev": "node --watch dist/cli.js start --local",
     "verify": "node dist/cli.js verify",
-    "test": "tsc -p tsconfig.test.json && node --test \"dist/__tests__/*.test.js\"",
-    "ci": "npm run build && npm run verify && npm test",
+    "test": "tsc -p tsconfig.test.json && node --test --test-isolation=process --test-timeout=10000 \"dist/__tests__/*.test.js\"",
+    "test:coverage": "tsc -p tsconfig.test.json && node --test --test-isolation=process --test-timeout=10000 --experimental-test-coverage --test-coverage-lines=100 --test-coverage-exclude='**/dist/__tests__/**' --test-coverage-exclude='**/web/**' --test-coverage-exclude='**/dist/cli.js' --test-coverage-exclude='**/dist/hooks/installer-daemon.js' --test-coverage-exclude='**/dist/injector/pty.js' --test-coverage-exclude='**/dist/adapters/process-fallback.js' --test-coverage-exclude='**/dist/adapters/codex/index.js' --test-coverage-exclude='**/dist/adapters/openclaw/index.js' \"dist/__tests__/*.test.js\"",
+    "ci": "npm run build && npm run verify && npm run test:coverage",
     "clean": "rm -rf dist"
   },
   "engines": {
