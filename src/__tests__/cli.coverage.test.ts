@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -31,41 +31,16 @@ test('cli: hook subcommand via main entry', () => {
   assert.equal(r.status, 0);
 });
 
-test('cli: install, uninstall, help, prompt usage, command failure', () => {
+test('cli: setup, verify, uninstall, help, logout, unknown usage', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-ch2-'));
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
-  const env = { HOME: home, AGENT_ADAPTER_HOME: path.join(home, '.agent-adapter') };
-  assert.ok(run(['install'], env).stdout.includes('Detected agents'));
+  const env = { HOME: home, USERPROFILE: home, AGENT_ADAPTER_HOME: path.join(home, '.agent-adapter') };
+  assert.ok(run(['setup'], env).stdout.includes('Detected agents'));
+  assert.ok(run(['verify'], env).stdout.includes('In sync'));
   assert.ok(run(['uninstall'], env).stdout.includes('Hooks removed'));
-  assert.ok(run(['--help']).stdout.includes('answer'));
-  assert.equal(run(['prompt'], env).status, 2);
-  assert.equal(run(['status'], { AGENT_ADAPTER_CONTROL_PORT: '7998' }).status, 1);
-});
-
-test('cli: status roster with waiting session and uplink start line', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-ch3-'));
-  const env = {
-    AGENT_ADAPTER_HOME: path.join(home, '.aa'),
-    AGENT_ADAPTER_CONTROL_PORT: '7815',
-    AGENT_ADAPTER_COMMANDER: DEAD_COMMANDER,
-  };
-  seedCred(env.AGENT_ADAPTER_HOME);
-  const hub = spawn(process.execPath, [CLI, 'start'], { env: { ...process.env, ...env }, stdio: 'ignore' });
-  await new Promise((r) => setTimeout(r, 500));
-  try {
-    await fetch('http://127.0.0.1:7815/ingest', {
-      method: 'POST',
-      body: JSON.stringify({
-        v: 1, kind: 'claude-code', event: 'PreToolUse', sessionId: 'w',
-        tool: 'AskUserQuestion', toolInput: { question: 'Q?', options: ['a'] }, title: 't',
-      }),
-    });
-    const st = run(['status'], env);
-    assert.ok(st.stdout.includes('waiting') || st.stdout.includes('⚠'));
-  } finally {
-    hub.kill('SIGTERM');
-    await new Promise((r) => hub.on('close', r));
-  }
+  assert.ok(run(['--help']).stdout.includes('verify'));
+  assert.equal(run(['prompt'], env).status, 2); // removed command → unknown → exit 2
+  assert.equal(run(['logout'], env).status, 0);
 });
 
 test('cli: start with existing web dashboard spawns child', () => {

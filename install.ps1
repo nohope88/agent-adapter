@@ -58,9 +58,9 @@ try { npm link | Out-Null; Say "Installed: aca (npm global bin)" }
 catch { Say "⚠ npm link failed; run directly: node `"$Proj\dist\cli.js`"" }
 
 Say "Detecting agents and wiring hooks…"
-node dist\cli.js install
+node dist\cli.js setup
 
 Say "Done. Log in to start the adapter:"
 Say "  aca login --token <cmdr_ak_…>"
-Say "Then check status:   aca status"
+Say "Re-sync agents anytime:  aca verify"
 Say "Optional dashboard:  aca start --web"

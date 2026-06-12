@@ -56,6 +56,31 @@ export function uninstallHooks(): void {
   }
 }
 
+/** Re-scan installed agents and bring hooks into line: (re)wire every agent that
+ *  is present (picking up newly-installed ones, healing stale/dup entries), and
+ *  strip our hooks from any agent that is no longer present. Returns the wired
+ *  kinds. An agent's config lives under its detect dir, so an uninstalled agent
+ *  usually takes its hooks with it — the strip is best-effort cleanup. */
+export function reconcileHooks(): string[] {
+  ensureRoot();
+  const inv = hookInvocation();
+  const wired: string[] = [];
+  for (const a of ALL_ADAPTERS) {
+    if (!a.hooks) continue;
+    if (dirExists(a.detectDir)) {
+      try {
+        mergeHooks(a, inv);
+        wired.push(a.kind);
+      } catch (e) {
+        log.error(`failed to wire ${a.kind}`, String(e));
+      }
+    } else {
+      stripHooks(a.hooks.configPath, a.hooks.format); // no-op if the config is already gone
+    }
+  }
+  return wired;
+}
+
 function mergeHooks(a: AdapterDescriptor, inv: string): void {
   const recipe = a.hooks!;
   const cfg = readJson(recipe.configPath);
@@ -120,6 +145,10 @@ export function loadCredential(): Credential | undefined {
     if (typeof token === 'string') return { token };
   } catch { /* none */ }
   return undefined;
+}
+/** Remove the stored credential. Returns true if one was present. */
+export function clearCredential(): boolean {
+  try { fs.rmSync(PATHS.credentials); return true; } catch { return false; }
 }
 
 // ── small fs/string helpers ────────────────────────────────────

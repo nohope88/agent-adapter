@@ -94,7 +94,7 @@ One `KindConn` per detected kind (the swagger is one-token→one-register→one-
 
 ## Test surfaces
 - `npm test` — unit tests (`src/__tests__/*.test.ts`, Node's built-in runner, no extra deps) covering `statemachine` (both oc-claw pitfalls + each event→status), `store` (throttle/roster), `binding` (cursor-pid guard), `hookReturn`, `acapVerify`, plus a **hub integration test** that boots the hub and drives `POST /ingest → GET /agents → POST /command`.
-- `node dist/cli.js verify` — descriptor conformance (CI gate).
+- `node dist/cli.js selfcheck` — descriptor conformance (acap-verify; CI gate). (`verify` is now the user-facing "re-detect & reconcile hooks" command.)
 - seed-credential + dead-Commander + `POST /ingest` + `GET /agents` + `POST /command` — manual full pipeline without real agents or a live Commander (see `CLAUDE.md`).
-- **CI:** `.github/workflows/ci.yml` runs build + verify + test on macOS/Linux/Windows × Node 22/24 on every push & PR. `npm run ci` reproduces it locally.
+- **CI:** `.github/workflows/ci.yml` runs build + selfcheck + test on macOS/Linux/Windows × Node 22/24 on every push & PR. `npm run ci` reproduces it locally.
 - **Gaps worth covering next:** `installer` hook-merge idempotency, `hookClient.normalize` per-kind field mapping, `runtime` offline-coalesce/reconnect.

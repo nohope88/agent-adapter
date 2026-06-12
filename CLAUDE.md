@@ -7,16 +7,18 @@ The canonical spec is **ACAP** (`docs/spec/ACAP.md` + `docs/spec/schemas/`, auth
 - **IS:** a headless, cross-platform process that **listens** to local AI coding agents (Claude Code, Codex, Cursor, Gemini CLI, OpenClaw, Hermes) and reports the canonical status (`idle/busy/waiting/error/ended`) per session, and **reacts back** (answer an approval, confirm, prompt, interrupt). It is an **ACAP client** that can uplink to a Commander.
 - **IS NOT:** the Commander (cloud relay / multi-tenant auth / DB) — out of scope, we are only its client. No web dashboard server. No voice/STT/ESP32. Those are Commander/device concerns in the ACAP spec, deliberately **not built here**. Don't add them unless asked.
 
-## Current status — session handoff (built 2026-06-11; ACAP/Commander uplink rewritten 2026-06-12)
-**The whole adapter is built, compiles clean, 120 tests pass at 100% line coverage, CI is wired. It has NOT been committed to git or run against this machine's real agents/Commander yet.**
+## Current status — session handoff (built 2026-06-11; ACAP/Commander uplink rewritten 2026-06-12; CLI slimmed 2026-06-12)
+**The whole adapter is built, compiles clean, 122 tests pass at 100% line coverage, CI is wired. It has NOT been committed to git or run against this machine's real agents/Commander yet.**
+
+**2026-06-12 — CLI slimmed to 4 user-facing commands.** `help` now lists only `setup` (detect+wire+register daemon; the old `install`, still accepted as a hidden alias), `login`, `logout` (new — clears the credential), and `verify` (**repurposed**: re-detect installed agents and reconcile hooks — wires present agents, strips absent ones; it now **writes** to real configs). The acap conformance check moved off `verify` to a hidden **`selfcheck`** subcommand (CI + `npm run selfcheck` use it). Removed entirely: the local react-back/debug subcommands `status`/`answer`/`prompt`/`interrupt` and their HTTP control-client (`getJson`/`postJson`) — react-back is the Commander/dashboard's job; the hub's `/command`+`/agents` HTTP endpoints still exist. Internal-only (work, not in `help`): `start`, `hook`, `uninstall`, `selfcheck`. New installer fns: `reconcileHooks()`, `clearCredential()`.
 
 **2026-06-12 — uplink realigned to the live ACAP spec + Commander swagger** (the old code targeted the now-removed `docs/design.html`): REST `register` → `wsToken` → WS (subprotocol bearer) → `hello` gate → `ping`/`pong` → reconnect-re-registers; canonical status renamed (`working→busy`, `activeTool→activeTools[]`, `lastResponse→lastReply`, `select→choice`, `ts(string)→updatedAt(ms)`); cmd `cmdId` dedup; `toWireStatus` serializer. New `commanderClient.ts`. Default Commander `https://commander-api.autonomous.ai`. See the two open questions under "Other known gaps".
 
 Done & verified:
 - Full TypeScript codebase under `src/` — `npm run build` compiles with zero errors.
-- `node dist/cli.js verify` → all 6 adapters pass conformance.
+- `node dist/cli.js selfcheck` → all 6 adapters pass conformance (acap-verify; was the `verify` subcommand).
 - `npm test` → **120 tests pass**; `npm run test:coverage` → **100% line coverage**. `npm run ci` reproduces the GitHub Actions gate and ran green locally.
-- `.github/workflows/ci.yml` runs build + verify + test on macOS/Linux/Windows × Node 22 & 24 on push & PR.
+- `.github/workflows/ci.yml` runs build + selfcheck (acap-verify) + test on macOS/Linux/Windows × Node 22 & 24 on push & PR.
 - Smoke-tested live: inject a waiting session → roster shows `waiting` → `answer` → `rejected: no inject target` (correct — no real terminal bound) → capability gate works. Auto-detects whichever of `~/.claude ~/.codex ~/.cursor ~/.gemini …` exist.
 
 Pick up here (NOT done):
@@ -40,13 +42,13 @@ Pick up here (NOT done):
 5. **Capability gate before inject.** `hub.handleCommand` rejects intents an adapter doesn't declare. Don't route around it.
 6. **Tenant/Commander is not ours.** We only hold a credential and speak ACAP. Don't add server-side auth/DB here.
 7. **Schema is versioned (`v`).** New fields are additive + optional. Don't rename/remove wire fields in `protocol.ts` without bumping.
-8. **`acap-verify` must stay green.** Run it after any adapter change: `node dist/cli.js verify`.
+8. **`acap-verify` must stay green.** Run it after any adapter change: `node dist/cli.js selfcheck` (the static conformance check; the old `verify` subcommand was renamed — `verify` is now the user-facing "re-detect & reconcile hooks" command, which **writes** to real agent configs).
 
 ## Build / run / test
 ```bash
 npm install            # Node >= 22 required (uses the global WebSocket)
 npm run build          # tsc → dist/  (must be zero errors)
-node dist/cli.js verify   # acap-verify all adapters (exit 0 = green)
+node dist/cli.js selfcheck # acap-verify all adapters (exit 0 = green; internal/CI subcommand)
 npm test               # functional unit + hub integration tests (node:test, no extra deps)
 npm run test:coverage  # same tests + a 100%-LINE-coverage gate on the core library modules
 npm run ci             # build + verify + test:coverage — the strict local gate (run before pushing)
@@ -69,7 +71,7 @@ curl -s 127.0.0.1:$P/agents          # → roster shows status:"waiting"
 curl -s -X POST 127.0.0.1:$P/command -d '{"agentId":"claude-code:'"$(hostname -s)"':s1","intent":"answer","answer":"yes"}'
 pkill -f 'dist/cli.js start'
 ```
-> ⚠️ **Do NOT run `node dist/cli.js install` casually** — it edits the real `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.cursor/hooks.json`. Use the isolated seed-credential + dead-Commander + `/ingest` flow above for development. (To exercise the real uplink, log in with a genuine `cmdr_ak_` key against `https://commander-api.autonomous.ai`.)
+> ⚠️ **Do NOT run `node dist/cli.js setup` (or `verify`) casually** — both edit the real `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.cursor/hooks.json` (`setup` = the old `install`, which still works as an alias; `verify` re-detects and reconciles). Use the isolated seed-credential + dead-Commander + `/ingest` flow above for development. (To exercise the real uplink, log in with a genuine `cmdr_ak_` key against `https://commander-api.autonomous.ai`.)
 
 ## Where things live (each file owns one concern)
 | File | Owns |
@@ -108,7 +110,7 @@ Each adapter's `hooks.events` maps that agent's **native** event names → these
 ## How to add / upgrade an agent provider
 1. `src/adapters/<kind>/manifest.json` + `index.ts` exporting an `AdapterDescriptor` (copy `claude-code/` as the template).
 2. Set `detectDir`, `capabilities`, `provides`, `inject` (`{channel:'pty'|'native'|'none', hookReturn}`), and either `hooks` (config path + format + native→canonical event map) or a `poll(emit)`.
-3. Add it to `ALL_ADAPTERS` in `registry.ts`. Run `node dist/cli.js verify`.
+3. Add it to `ALL_ADAPTERS` in `registry.ts`. Run `node dist/cli.js selfcheck`.
 4. Hook config formats the installer knows: `'claude'` (`settings.json` `hooks.{Event}[].hooks[]`), `'codex'` / `'cursor'` (`hooks.json` `hooks.{Event}[].command`). Add a new format only in `installer.ts:entryFor/mergeHooks`.
 
 ## Current state — verified vs TODO

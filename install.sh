@@ -70,11 +70,11 @@ else
 fi
 
 say "Detecting agents and wiring hooks…"
-node dist/cli.js install   # wires hooks + registers the headless daemon
+node dist/cli.js setup   # wires hooks + registers the headless daemon
 
 # The daemon runs the headless adapter; `start` waits for a credential, so the
 # adapter goes live once you log in. The web dashboard is opt-in, not installed.
 say "Done. Log in to start the adapter:"
 say "  aca login --token <cmdr_ak_…>"
-say "Then check status:  aca status"
+say "Re-sync agents anytime:  aca verify"
 say "Optional dashboard:  aca start --web"

@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-import http from 'http';
-import { readControlPort } from './util/paths';
 
 /**
  * aca CLI. Subcommands lazy-require their deps so `hook` stays light
@@ -9,16 +7,16 @@ import { readControlPort } from './util/paths';
 export async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   switch (cmd) {
-    case 'hook':            return (await import('./hookClient')).runHook(rest);
-    case 'start':           return start(rest);
-    case 'status':          return status();
-    case 'answer':          return command('answer', rest[0], { answer: rest.slice(1).join(' ') });
-    case 'prompt':          return command('prompt', rest[0], { prompt: rest.slice(1).join(' ') });
-    case 'interrupt':       return command('interrupt', rest[0], {});
-    case 'install':         return install();
-    case 'uninstall':       return uninstall();
-    case 'verify':          return verify();
+    case 'setup':                       // user-facing: detect agents, wire hooks, register the daemon
+    case 'install':         return setup();
     case 'login':           return login(rest);
+    case 'logout':          return logout();
+    case 'verify':          return reconcile();
+    // internal — not advertised in help:
+    case 'hook':            return (await import('./hookClient')).runHook(rest); // agents call this per event
+    case 'start':           return start(rest);                                  // the daemon runs this
+    case 'uninstall':       return uninstall();
+    case 'selfcheck':       return selfcheck();                                  // acap conformance (CI)
     case undefined:
     case 'help':
     case '--help':          return help();
@@ -81,34 +79,12 @@ async function startWebUi(args: Record<string, string | boolean>, controlPort: n
   return child;
 }
 
-async function status(): Promise<void> {
-  try {
-    const roster = (await getJson('/agents')) as Array<Record<string, unknown>>;
-    if (!roster.length) { process.stdout.write('(no active sessions)\n'); return; }
-    const dot: Record<string, string> = { waiting: '⚠', busy: '●', idle: '○', error: '✖', ended: '·' };
-    for (const s of roster) {
-      const st = String(s.status);
-      const w = s.waiting ? `  ← ${(s.waiting as { text: string }).text}` : '';
-      process.stdout.write(
-        `${dot[st] ?? '?'} ${st.padEnd(7)} ${String(s.agentId).padEnd(34)} ${s.title ?? ''}${w}\n`);
-    }
-  } catch {
-    process.stderr.write('cannot reach hub — is `aca start` running?\n');
-    process.exit(1);
-  }
+async function logout(): Promise<void> {
+  const had = (await import('./hooks/installer')).clearCredential();
+  process.stdout.write(had ? 'Logged out — credential removed.\n' : 'Not logged in.\n');
 }
 
-async function command(intent: string, agentId: string | undefined, extra: Record<string, string>): Promise<void> {
-  if (!agentId) { process.stderr.write(`usage: aca ${intent} <agentId> [...]\n`); process.exit(2); }
-  try {
-    const ack = await postJson('/command', { agentId, intent, ...extra });
-    process.stdout.write(`${JSON.stringify(ack)}\n`);
-  } catch (e) {
-    process.stderr.write(`failed: ${String(e)}\n`); process.exit(1);
-  }
-}
-
-async function install(): Promise<void> {
+async function setup(): Promise<void> {
   const inst = await import('./hooks/installer');
   const report = inst.detectReport();
   process.stdout.write('Detected agents:\n');
@@ -120,7 +96,18 @@ async function install(): Promise<void> {
   process.stdout.write(`\nWired hooks for: ${wired.join(', ') || '(none)'}\n`);
   process.stdout.write('Daemon registered (runs the headless adapter).\n');
   process.stdout.write('Next: `aca login --token <cmdr_ak_…>` — the adapter starts once you log in.\n');
-  process.stdout.write('Optional dashboard: `aca start --web`.\n');
+  process.stdout.write('Re-run `aca verify` whenever you install or remove an agent.\n');
+}
+
+async function reconcile(): Promise<void> {
+  const inst = await import('./hooks/installer');
+  const report = inst.detectReport();
+  process.stdout.write('Detected agents:\n');
+  for (const r of report) {
+    process.stdout.write(`  ${r.installed ? '✓' : '·'} ${r.kind}${r.installed && !r.wired ? ' (process-baseline only)' : ''}\n`);
+  }
+  const wired = inst.reconcileHooks();
+  process.stdout.write(`\nIn sync. Hooks wired for: ${wired.join(', ') || '(none)'}\n`);
 }
 
 async function uninstall(): Promise<void> {
@@ -128,7 +115,7 @@ async function uninstall(): Promise<void> {
   process.stdout.write('Hooks removed. (Daemon: launchctl/systemctl/schtasks remove manually if desired.)\n');
 }
 
-async function verify(): Promise<void> {
+async function selfcheck(): Promise<void> {
   const results = (await import('./acapVerify')).verifyAll();
   let ok = true;
   for (const r of results) {
@@ -155,8 +142,8 @@ async function login(rest: string[]): Promise<void> {
       }
     }
     inst.saveCredential(token);
-    process.stdout.write('Credential saved.\n');
-    process.stdout.write(`Start with: aca start${args.commander ? ' --commander ' + args.commander : ''}\n`);
+    process.stdout.write('Credential saved — the headless daemon uses it automatically.\n');
+    process.stdout.write('Optional dashboard: `aca start --web`.\n');
     return;
   }
   process.stdout.write(
@@ -165,39 +152,15 @@ async function login(rest: string[]): Promise<void> {
 }
 
 function help(): void {
-  process.stdout.write(`aca — listen to & react back to local AI coding agents
+  process.stdout.write(`aca — listen & react back to local AI coding agents (ACAP adapter)
 
-  login --token <cmdr_ak_…> [--commander <url>]   store the Commander credential (do this first)
-  start [--commander <url>] [--web]               run the adapter (requires login)
-  status                                          show the live session roster
-  answer <agentId> <choice>                       react to a waiting agent (e.g. yes)
-  prompt <agentId> <text...>                      send a prompt into an agent
-  interrupt <agentId>                             interrupt a running agent
+  setup                                           detect agents, wire their hooks, register the daemon
+  login --token <cmdr_ak_…> [--commander <url>]   store the Commander credential
+  logout                                          remove the stored credential
+  verify                                          re-scan agents; add/remove hooks to match what's installed
 `);
 }
 
-// ── tiny control-API client ────────────────────────────────────
-function getJson(pathname: string): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    http.get({ host: '127.0.0.1', port: readControlPort(), path: pathname }, (res) => {
-      let b = ''; res.on('data', (c) => (b += c));
-      res.on('end', () => { try { resolve(JSON.parse(b)); } catch (e) { reject(e); } });
-    }).on('error', reject);
-  });
-}
-function postJson(pathname: string, body: unknown): Promise<unknown> {
-  const data = JSON.stringify(body);
-  return new Promise((resolve, reject) => {
-    const req = http.request({
-      host: '127.0.0.1', port: readControlPort(), path: pathname, method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
-    }, (res) => {
-      let b = ''; res.on('data', (c) => (b += c));
-      res.on('end', () => { try { resolve(JSON.parse(b)); } catch (e) { reject(e); } });
-    });
-    req.on('error', reject); req.write(data); req.end();
-  });
-}
 function flags(rest: string[]): Record<string, string | boolean> {
   const out: Record<string, string | boolean> = {};
   for (let i = 0; i < rest.length; i++) {

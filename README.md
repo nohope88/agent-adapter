@@ -14,7 +14,7 @@ It is an **ACAP client** (the protocol is specified in [`docs/spec/ACAP.md`](doc
  agents → installed hooks ──(socket)──▶ HUB ──(WSS uplink, optional)──▶ Commander
    ▲ status (working/idle/waiting)        │ state machine + binding         (not ours)
    ▼ react back (answer/confirm/…)        │ injector + control API
-                                          └─ CLI: status · answer · prompt · interrupt
+                                          └─ CLI: setup · login · logout · verify
 ```
 
 1. **Listen** — `install` writes a tiny hook into each detected agent (Claude `~/.claude/settings.json`, Codex `~/.codex/hooks.json`, Cursor `~/.cursor/hooks.json`). On every event the hook posts JSON to a **local socket** (unix socket; TCP `127.0.0.1:19284` on Windows). Agents without a usable hook system get a **process-baseline** (running + CPU% → working/idle).
@@ -51,18 +51,16 @@ Either way it builds, **detects** installed agents, **wires their hooks**, and r
 
 ## Use
 
+The installer wires hooks and registers the headless daemon; you only ever need four commands:
+
 ```bash
-aca login --token <cmdr_ak_…>           # log in first — required before start
-aca start                               # run the adapter (uplinks to the default Commander)
-aca start --commander https://your-commander   # override the Commander URL
-aca start --web                         # …also serve the optional dashboard
-aca status                              # live roster
-aca answer claude-code:host:SID yes     # react to a waiting agent
-aca prompt claude-code:host:SID "run the tests again"
-aca interrupt claude-code:host:SID
+aca setup                               # detect agents, wire their hooks, register the daemon (the installer runs this)
+aca login --token <cmdr_ak_…>           # store the Commander credential — the daemon then uplinks automatically
+aca logout                              # remove the stored credential
+aca verify                              # re-scan agents after you install/remove one; reconciles hooks to match
 ```
 
-`status`/`answer`/etc. talk to the running hub's local control API (`http://127.0.0.1:7788`).
+Status and react-back (answer / prompt / interrupt) happen through your **Commander/dashboard**, not the local CLI — the daemon streams status up and applies commands coming down. For a local dashboard run `aca start --web` (`--commander <url>` overrides the default Commander).
 
 <!-- ---
 
@@ -100,7 +98,7 @@ src/adapters/<kind>/
   index.ts          # an AdapterDescriptor: capabilities, provides, inject, detectDir, hooks?/poll?
 ```
 
-Then add it to `src/adapters/registry.ts` and run `npm run verify`. Ship at **L0** (status only) immediately; add a `hooks` recipe or `poll` to grow to L1–L3. `acap-verify` enforces the descriptor is well-formed.
+Then add it to `src/adapters/registry.ts` and run `npm run selfcheck`. Ship at **L0** (status only) immediately; add a `hooks` recipe or `poll` to grow to L1–L3. `acap-verify` enforces the descriptor is well-formed.
 
 ---
 
@@ -131,10 +129,10 @@ install.sh / install.ps1
 npm install        # Node >= 22
 npm run build      # tsc → dist/
 npm test           # unit + hub integration tests (Node's built-in runner)
-npm run ci         # build + verify + test (what GitHub Actions runs)
+npm run ci         # build + selfcheck + test (what GitHub Actions runs)
 ```
 
-`.github/workflows/ci.yml` runs build + `verify` + tests on every push/PR across **macOS / Linux / Windows × Node 22 & 24**, so integration breakage is caught before merge. See `CLAUDE.md` + `ARCHITECTURE.md` to extend the codebase.
+`.github/workflows/ci.yml` runs build + `selfcheck` (acap-verify) + tests on every push/PR across **macOS / Linux / Windows × Node 22 & 24**, so integration breakage is caught before merge. See `CLAUDE.md` + `ARCHITECTURE.md` to extend the codebase.
 
 ## Notes / limitations
 - `pty` react-back needs the agent in a **tmux** pane (or launched under a managed pty). Without tmux, a non-tmux terminal agent returns `no inject target` — wire managed-pty (`node-pty`, an optional dep) or run agents in tmux.

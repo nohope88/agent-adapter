@@ -65,3 +65,37 @@ test('installer: a per-adapter wiring failure is caught, not fatal', async () =>
     fs.rmSync(settings, { recursive: true, force: true });
   }
 });
+
+test('installer: reconcileHooks wires present agents, strips absent ones, catches failures', async () => {
+  const claudeDir = path.join(home, '.claude');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.rmSync(path.join(home, '.cursor'), { recursive: true, force: true }); // ensure cursor is absent → strip path
+  const inst = await import('../hooks/installer');
+
+  // claude present → wired; cursor absent → stripHooks no-ops on a missing config.
+  const wired = inst.reconcileHooks();
+  assert.ok(wired.includes('claude-code'), `expected claude wired, got: ${wired.join(',')}`);
+  assert.ok(!wired.includes('cursor'));
+  const settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8'));
+  assert.ok(settings.hooks && Object.keys(settings.hooks as object).length > 0);
+
+  // Make claude's config un-writable (dir in place of file) → mergeHooks throws → caught.
+  const sPath = path.join(claudeDir, 'settings.json');
+  fs.rmSync(sPath, { force: true });
+  fs.mkdirSync(sPath, { recursive: true });
+  try {
+    const again = inst.reconcileHooks();
+    assert.ok(!again.includes('claude-code'), 'wiring failure was caught');
+  } finally {
+    fs.rmSync(sPath, { recursive: true, force: true });
+  }
+});
+
+test('installer: clearCredential removes the credential, false when none', async () => {
+  const inst = await import('../hooks/installer');
+  inst.saveCredential('tok');
+  assert.equal(inst.loadCredential()?.token, 'tok');
+  assert.equal(inst.clearCredential(), true);
+  assert.equal(inst.loadCredential(), undefined);
+  assert.equal(inst.clearCredential(), false); // already gone
+});

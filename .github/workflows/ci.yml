@@ -34,7 +34,7 @@ jobs:
         run: npm run build
 
       - name: Conformance (acap-verify)
-        run: node dist/cli.js verify
+        run: node dist/cli.js selfcheck
 
       - name: Test (unit + integration)
         run: npm test
