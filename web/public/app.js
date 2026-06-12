@@ -1,12 +1,11 @@
 'use strict';
-// Live dashboard for the Agent Adapter. Connects to the hub's SSE stream
-// (via the local proxy at /api/stream), renders one card per session, and
-// posts react-back commands (answer / prompt / interrupt) to /api/command.
-//
-// Cards are reconciled in place by agentId so a live update never clears the
-// prompt field you're typing in.
+// Live dashboard for the Agent Adapter — dual source.
+//   Local  → SSE /local/stream  (the hub on this machine; full react-back)
+//   Cloud  → SSE /cloud/stream  (Commander API, polled; prompt-only; needs login)
+// Cards render identically from the same AgentStatus shape, so you can flip the
+// Local | Cloud toggle to see exactly where the integration diverges.
 
-const PRIORITY = { waiting: 0, error: 1, busy: 2, idle: 3, ended: 4 };
+const PRIORITY = { waiting: 0, error: 1, busy: 2, working: 2, idle: 3, ended: 4 };
 const KIND_BADGE = {
   'claude-code': 'CC', codex: 'CX', cursor: 'CU', gemini: 'GM', openclaw: 'OC', hermes: 'HM',
 };
@@ -22,22 +21,70 @@ const connEl = document.getElementById('conn');
 const countsEl = document.getElementById('counts');
 const emptyEl = document.getElementById('empty');
 const toastEl = document.getElementById('toast');
+const sourceEl = document.getElementById('source');
+const whoamiEl = document.getElementById('whoami');
+const logoutBtn = document.getElementById('logout');
+const loginErr = document.getElementById('login-err');
+const loginForm = document.getElementById('login-form');
+const tokenForm = document.getElementById('token-form');
+
+// ── Mode (local | cloud) ──────────────────────────────────────────
+let mode = localStorage.getItem('aca-web-mode') === 'cloud' ? 'cloud' : 'local';
+let config = { hub: '', commander: '' };
+
+function applyModeChrome() {
+  document.body.dataset.mode = mode;
+  for (const b of document.querySelectorAll('.mode-btn')) {
+    b.classList.toggle('mode-btn--on', b.dataset.mode === mode);
+  }
+  sourceEl.textContent = mode === 'cloud' ? `cloud · ${short(config.commander)}` : `local · ${config.hub}`;
+}
+
+async function switchMode(next) {
+  if (next === mode) return;
+  mode = next;
+  localStorage.setItem('aca-web-mode', mode);
+  applyModeChrome();
+  disconnect();
+  sessions.clear();
+  render();
+  await enterMode();
+}
+
+// Decide what to show for the current mode: local connects straight away;
+// cloud first checks auth and shows the login gate if needed.
+async function enterMode() {
+  if (mode === 'local') { document.body.dataset.view = 'board'; connect(); return; }
+  try {
+    const a = await (await fetch('/cloud/auth')).json();
+    if (a.authed) { whoamiEl.textContent = a.email || ''; document.body.dataset.view = 'board'; connect(); }
+    else document.body.dataset.view = 'login';
+  } catch { document.body.dataset.view = 'login'; }
+}
 
 // ── SSE connection ────────────────────────────────────────────────
+let es = null;
 function connect() {
-  const es = new EventSource('/api/stream');
+  disconnect();
+  es = new EventSource(`/${mode}/stream`);
   es.addEventListener('open', () => setConn(true));
   es.addEventListener('error', () => setConn(false));
+  es.addEventListener('unauth', () => {            // cloud only
+    disconnect();
+    document.body.dataset.view = 'login';
+    toast('Please sign in to Commander', 'warn');
+  });
   es.addEventListener('roster', (e) => {
     sessions.clear();
     for (const s of safeParse(e.data, [])) sessions.set(s.agentId, s);
     render();
   });
-  es.addEventListener('status', (e) => {
+  es.addEventListener('status', (e) => {           // local hub pushes deltas
     const s = safeParse(e.data, null);
     if (s && s.agentId) { sessions.set(s.agentId, s); render(); }
   });
 }
+function disconnect() { if (es) { es.close(); es = null; } setConn(false); }
 
 function setConn(ok) {
   connEl.textContent = ok ? 'live' : 'reconnecting…';
@@ -50,12 +97,10 @@ function render() {
     (a, b) => (PRIORITY[a.status] - PRIORITY[b.status]) || ((b.updatedAt || 0) - (a.updatedAt || 0)),
   );
 
-  // Remove cards for sessions no longer present.
   for (const [id, el] of cardEls) {
     if (!sessions.has(id)) { el.remove(); cardEls.delete(id); }
   }
 
-  // Upsert + order.
   let prev = null;
   for (const s of list) {
     let el = cardEls.get(s.agentId);
@@ -65,16 +110,14 @@ function render() {
     prev = el;
   }
 
-  // Counts + empty state.
   const counts = {};
   for (const s of list) counts[s.status] = (counts[s.status] || 0) + 1;
   countsEl.textContent = list.length
-    ? Object.keys(PRIORITY).filter((k) => counts[k]).map((k) => `${counts[k]} ${k}`).join('  ·  ')
+    ? Object.keys(PRIORITY).filter((k, i, a) => a.indexOf(k) === i && counts[k]).map((k) => `${counts[k]} ${k}`).join('  ·  ')
     : '';
   emptyEl.style.display = list.length ? 'none' : 'block';
 }
 
-// Build the static skeleton once. The prompt input persists across updates.
 function buildCard(agentId) {
   const el = document.createElement('article');
   el.className = 'card';
@@ -116,9 +159,6 @@ function buildCard(agentId) {
   return el;
 }
 
-// Fill a card from a snapshot. Status drives the corner glow, bar, avatar and
-// badge colors (all via [data-status] in CSS). Only the waiting region is
-// rebuilt; the prompt input is left untouched.
 function updateCard(el, s) {
   el.dataset.status = s.status;
   el.querySelector('.kind').textContent = s.kind || '';
@@ -126,7 +166,6 @@ function updateCard(el, s) {
   el.querySelector('.title').textContent = s.title || s.sessionId || s.agentId;
   el.querySelector('.subtitle').textContent = s.cwd || '';
 
-  // Meter clue (right of "Activity"): the live tool, or a short last reply.
   let clue = '';
   const tool = s.activeTools && s.activeTools[0];
   if (s.status === 'waiting') clue = 'awaiting reply';
@@ -134,12 +173,10 @@ function updateCard(el, s) {
   else if (s.lastReply) clue = '“' + s.lastReply.slice(0, 44) + '”';
   el.querySelector('.m-tool').textContent = clue;
 
-  // Footer: agent avatar + short id + status badge.
   el.querySelector('.avatar').textContent = kindBadge(s.kind);
   el.querySelector('.who-id').textContent = (s.host ? s.host + ':' : '') + (s.sessionId || '');
   el.querySelector('.badge').textContent = s.status;
 
-  // Waiting banner + option pills.
   const region = el.querySelector('.waiting-region');
   region.innerHTML = '';
   if (s.status === 'waiting' && s.waiting) {
@@ -166,15 +203,20 @@ function updateCard(el, s) {
     region.appendChild(banner);
   }
 
-  // Ended sessions can't be acted on.
+  // Ended sessions can't be acted on; Cloud is prompt-only so interrupt is off.
   const ended = s.status === 'ended';
   for (const b of el.querySelectorAll('.actions .btn, .actions input')) b.disabled = ended;
+  const intr = el.querySelector('.interrupt');
+  if (intr) {
+    intr.disabled = ended || mode === 'cloud';
+    intr.title = mode === 'cloud' ? 'Interrupt unavailable in Cloud (prompt-only)' : 'Interrupt the agent';
+  }
 }
 
 // ── React-back ────────────────────────────────────────────────────
 async function postCommand(agentId, body) {
   try {
-    const r = await fetch('/api/command', {
+    const r = await fetch(`/${mode}/command`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ agentId, ...body }),
@@ -190,6 +232,62 @@ async function postCommand(agentId, body) {
   } catch (e) {
     toast(`${body.intent} failed: ${e}`, 'err');
   }
+}
+
+// ── Auth (cloud) ──────────────────────────────────────────────────
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  loginErr.textContent = '';
+  const email = loginForm.email.value.trim();
+  const password = loginForm.password.value;
+  const btn = loginForm.querySelector('button[type=submit]');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    const r = await fetch('/cloud/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) { loginForm.password.value = ''; afterAuth(j.email); }
+    else loginErr.textContent = j.error || 'Login failed';
+  } catch (e2) { loginErr.textContent = String(e2); }
+  finally { btn.disabled = false; btn.textContent = 'Sign in'; }
+});
+
+tokenForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  loginErr.textContent = '';
+  const access_token = tokenForm.access_token.value.trim();
+  if (!access_token) return;
+  const btn = tokenForm.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/cloud/token', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ access_token }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) { tokenForm.access_token.value = ''; afterAuth(j.email); }
+    else loginErr.textContent = j.error || 'Token rejected';
+  } catch (e2) { loginErr.textContent = String(e2); }
+  finally { btn.disabled = false; }
+});
+
+logoutBtn.addEventListener('click', async () => {
+  try { await fetch('/cloud/logout', { method: 'POST' }); } catch { /* ignore */ }
+  disconnect();
+  whoamiEl.textContent = '';
+  document.body.dataset.view = 'login';
+});
+
+function afterAuth(email) {
+  whoamiEl.textContent = email || '';
+  document.body.dataset.view = 'board';
+  connect();
+}
+
+for (const b of document.querySelectorAll('.mode-btn')) {
+  b.addEventListener('click', () => switchMode(b.dataset.mode));
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -210,12 +308,9 @@ function relTime(ts) {
   if (s < 3600) return Math.round(s / 60) + 'm ago';
   return Math.round(s / 3600) + 'h ago';
 }
+function short(url) { return String(url || '').replace(/^https?:\/\//, '').replace(/\/+$/, ''); }
+function safeParse(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
 
-function safeParse(s, fallback) {
-  try { return JSON.parse(s); } catch { return fallback; }
-}
-
-// Refresh relative timestamps periodically without a server round-trip.
 setInterval(() => {
   for (const [id, el] of cardEls) {
     const s = sessions.get(id);
@@ -223,4 +318,9 @@ setInterval(() => {
   }
 }, 15000);
 
-connect();
+// ── Boot ──────────────────────────────────────────────────────────
+(async function boot() {
+  try { config = await (await fetch('/config')).json(); } catch { /* defaults */ }
+  applyModeChrome();
+  await enterMode();
+})();

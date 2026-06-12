@@ -12,6 +12,7 @@ export async function main(): Promise<void> {
     case 'login':           return login(rest);
     case 'logout':          return logout();
     case 'verify':          return reconcile();
+    case 'web':             return web(rest);    // open the dashboard against the running daemon
     // internal — not advertised in help:
     case 'hook':            return (await import('./hookClient')).runHook(rest); // agents call this per event
     case 'start':           return start(rest);                                  // the daemon runs this
@@ -46,15 +47,35 @@ async function start(rest: string[]): Promise<void> {
   process.stdout.write(
     `aca running (uplink → ${commanderUrl}). ` +
     `control: http://127.0.0.1:${hub.controlPort}  ·  Ctrl-C to stop\n`);
-  const web = args.web ? await startWebUi(args, hub.controlPort) : null;
+  const web = args.web ? await startWebUi(args, hub.controlPort, commanderUrl) : null;
   const shutdown = async () => { web?.kill(); await hub.stop(); process.exit(0); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
 
+/** `aca web` — dashboard only. Attaches to the ALREADY-running daemon's control
+ *  API (no hub, no single-instance lock), so it never conflicts with the
+ *  installed headless service. This is the command to run post-install. */
+async function web(rest: string[]): Promise<void> {
+  const args = flags(rest);
+  const { readControlPort } = await import('./util/paths');
+  const { DEFAULT_COMMANDER } = await import('./commanderClient');
+  const controlPort = readControlPort();             // published by the running hub; falls back to default
+  const commanderUrl = typeof args.commander === 'string'
+    ? args.commander
+    : (process.env.AGENT_ADAPTER_COMMANDER || DEFAULT_COMMANDER);
+  const child = await startWebUi(args, controlPort, commanderUrl);
+  if (!child) { process.exit(1); return; }
+  process.stdout.write(`Local tab → running daemon on control port ${controlPort}; Cloud tab → ${commanderUrl}\n`);
+  const shutdown = () => { child.kill(); process.exit(0); };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  child.on('exit', (code) => process.exit(code ?? 0));
+}
+
 /** Spawn the external web dashboard (web/server.js) as a child of the hub.
  *  Fail-open: a missing or broken web UI must never take the adapter down. */
-async function startWebUi(args: Record<string, string | boolean>, controlPort: number) {
+async function startWebUi(args: Record<string, string | boolean>, controlPort: number, commanderUrl?: string) {
   const path = await import('path');
   const fs = await import('fs');
   const { spawn } = await import('child_process');
@@ -66,7 +87,12 @@ async function startWebUi(args: Record<string, string | boolean>, controlPort: n
   const webPort = String(typeof args['web-port'] === 'string' ? args['web-port'] : process.env.WEB_PORT || '8787');
   const child = spawn(process.execPath, [server], {
     // Point the dashboard's /api proxy at THIS hub's actual control port.
-    env: { ...process.env, WEB_PORT: webPort, AGENT_ADAPTER_CONTROL_PORT: String(controlPort) },
+    env: {
+      ...process.env,
+      WEB_PORT: webPort,
+      AGENT_ADAPTER_CONTROL_PORT: String(controlPort),
+      ...(commanderUrl ? { AGENT_ADAPTER_COMMANDER: commanderUrl } : {}),
+    },
     stdio: 'inherit',
   });
   child.on('error', (e) => process.stderr.write(`web UI failed to start: ${String(e)}\n`));
@@ -143,7 +169,7 @@ async function login(rest: string[]): Promise<void> {
     }
     inst.saveCredential(token);
     process.stdout.write('Credential saved — the headless daemon uses it automatically.\n');
-    process.stdout.write('Optional dashboard: `aca start --web`.\n');
+    process.stdout.write('Optional dashboard: `aca web`.\n');
     return;
   }
   process.stdout.write(
@@ -158,6 +184,7 @@ function help(): void {
   login --token <cmdr_ak_…> [--commander <url>]   store the Commander credential
   logout                                          remove the stored credential
   verify                                          re-scan agents; add/remove hooks to match what's installed
+  web   [--web-port <n>] [--commander <url>] [--open]   open the dashboard (attaches to the running daemon)
 `);
 }
 

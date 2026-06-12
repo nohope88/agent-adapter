@@ -6,17 +6,49 @@
   <title>Agent Adapter — Dashboard</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body>
+<body data-mode="local" data-view="board">
   <header class="topbar">
     <div class="brand">
       <span class="logo">◎</span>
       <h1>Agent Adapter</h1>
+      <div class="modes" role="tablist" aria-label="Data source">
+        <button class="mode-btn mode-btn--on" data-mode="local" type="button">Local</button>
+        <button class="mode-btn" data-mode="cloud" type="button">Cloud</button>
+      </div>
     </div>
     <div class="status-bar">
+      <span id="source" class="source"></span>
       <span id="counts" class="counts"></span>
       <span id="conn" class="conn conn--off">connecting…</span>
+      <span id="whoami" class="whoami"></span>
+      <button id="logout" class="btn logout" type="button">Sign out</button>
     </div>
   </header>
+
+  <!-- Cloud login gate (shown only when mode=cloud and not authenticated) -->
+  <section id="login" class="login-wrap">
+    <div class="login-card">
+      <div class="login-head"><span class="logo">◎</span><h2>Sign in to Commander</h2></div>
+      <p class="login-sub" id="login-commander"></p>
+
+      <form id="login-form" class="login-form" autocomplete="on">
+        <input name="email" type="email" placeholder="email" autocomplete="username" required />
+        <input name="password" type="password" placeholder="password" autocomplete="current-password" required />
+        <button type="submit" class="btn primary">Sign in</button>
+      </form>
+
+      <details class="token-details">
+        <summary>or paste an access token</summary>
+        <form id="token-form" class="token-form">
+          <textarea name="access_token" rows="3" placeholder="eyJhbGci…  (UserAuth access JWT)"></textarea>
+          <button type="submit" class="btn">Use token</button>
+        </form>
+      </details>
+
+      <p id="login-err" class="login-err" role="alert"></p>
+      <p class="login-foot">Cloud is <strong>prompt-only</strong>. For answer/interrupt, switch to <strong>Local</strong>.</p>
+    </div>
+  </section>
 
   <main id="board" class="board">
     <p id="empty" class="empty">
