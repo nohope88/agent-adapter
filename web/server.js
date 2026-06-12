@@ -97,6 +97,18 @@ async function cloudRoute(req, res, sub) {
   if (sub === '/auth' && req.method === 'GET') {
     return json(res, 200, { authed: cloudAuthed(), email: auth.email, mode: auth.mode });
   }
+  if (sub === '/raw' && req.method === 'GET') {            // DEBUG: raw GET /api/agents
+    if (!cloudAuthed()) return json(res, 401, { error: 'not authenticated' });
+    const r = await cFetch('/api/agents?limit=200');
+    const body = await r.text();
+    let parsed = null; try { parsed = JSON.parse(body); } catch { /* keep raw */ }
+    return json(res, 200, { upstreamStatus: r.status, pickArrayLen: pickArray(parsed || {}).length, raw: body.slice(0, 6000) });
+  }
+  if (sub === '/me' && req.method === 'GET') {             // DEBUG: who am I to the Commander
+    if (!cloudAuthed()) return json(res, 401, { error: 'not authenticated' });
+    const r = await cFetch('/api/auth/me');
+    return json(res, r.status, await r.json().catch(() => ({})));
+  }
   if (sub === '/login' && req.method === 'POST') return cloudLogin(req, res);
   if (sub === '/token' && req.method === 'POST') return cloudToken(req, res);
   if (sub === '/logout' && req.method === 'POST') { clearAuth(); return json(res, 200, { ok: true }); }
@@ -184,7 +196,7 @@ function cloudStream(req, res) {
     if (!alive) return;
     if (!cloudAuthed()) { sse(res, 'unauth', {}); t = setTimeout(tick, POLL_MS); return; }
     try {
-      const r = await cFetch('/api/agents');
+      const r = await cFetch('/api/agents?limit=200');
       if (r.status === 401) sse(res, 'unauth', {});
       else if (r.ok) {
         const arr = pickArray(await r.json().catch(() => ({})));
@@ -263,11 +275,17 @@ function readBody(req) {
 }
 function unwrap(j) { return (j && typeof j === 'object' && j.data && typeof j.data === 'object') ? j.data : (j || {}); }
 function errOf(j) { return j && (j.error || j.message || j.code); }
+// Commander list endpoints wrap the array as { data: { items: [...], total, page } }.
 function pickArray(j) {
   if (Array.isArray(j)) return j;
-  if (j && Array.isArray(j.data)) return j.data;
-  if (j && Array.isArray(j.agents)) return j.agents;
-  if (j && j.data && Array.isArray(j.data.agents)) return j.data.agents;
+  if (!j || typeof j !== 'object') return [];
+  if (Array.isArray(j.items)) return j.items;
+  if (Array.isArray(j.agents)) return j.agents;
+  if (Array.isArray(j.data)) return j.data;
+  if (j.data && typeof j.data === 'object') {
+    if (Array.isArray(j.data.items)) return j.data.items;   // ← /api/agents shape
+    if (Array.isArray(j.data.agents)) return j.data.agents;
+  }
   return [];
 }
 function discOf(agentId) {
