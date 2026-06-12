@@ -79,12 +79,15 @@ One `KindConn` per detected kind (the swagger is one-token→one-register→one-
 | No inject target | `injector` → `Ack{rejected,'no inject target'}` |
 | Unsupported intent | `hub.handleCommand` capability gate |
 | Double install | `util/lock.acquireSingleInstance` pidfile |
+| Control port busy | `hub.startControl` falls back to `listen(0)` + publishes `control.port`; clients read it |
 
 ## Local control API (hub.ts)
-`http://127.0.0.1:7788` (override `AGENT_ADAPTER_CONTROL_PORT`):
+`http://127.0.0.1:7788` (preferred; override `AGENT_ADAPTER_CONTROL_PORT`):
 - `GET /healthz` · `GET /agents` (roster) · `GET /stream` (SSE)
 - `POST /command` `{agentId, intent, answer|prompt|mode}` → `Ack`
 - `POST /ingest` `{HookEvent}` — **test affordance**: inject an event without a real hook.
+
+**Port discovery.** If the preferred port is busy, `startControl` lets the OS pick a free one (`listen(0)`) and **publishes the actual port** to `~/.agent-adapter/control.port` (`util/paths.writeControlPort`); `hub.controlPort` holds it. Out-of-process clients (`status`/`answer`/… and the `--web` child) resolve the port via `readControlPort()` = `control.port` file → `AGENT_ADAPTER_CONTROL_PORT` → `7788`. The file is removed on shutdown. A server error *after* listening is logged, never thrown (parity with `ingest`).
 
 ## Protocol (protocol.ts) is the contract
 `HookEvent` (hook→hub) → `AgentStatus` (hub→up, serialized by `toWireStatus`) is the spine. `Command`/`Ack` is the down path. Registration is the REST `POST /v1/agents/register` (`Register` → `RegisterResponse`), answered by a server `Hello`. Everything on the WS is wrapped in `Envelope{v,type,id,ts,data}`, `type ∈ hello|status|event|ack|cmd|ping|pong`. The canonical status enum is `idle|busy|waiting|error|ended`; `waiting.kind ∈ approval|input|choice`. The schemas in `docs/spec/schemas/` are authoritative — bump `v` / add optional fields for evolution.

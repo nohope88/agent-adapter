@@ -74,6 +74,33 @@ test('hub: registers a poll adapter on start and tears it down on stop', async (
   await hub.stop(); // must not throw despite the poll stopper throwing
 });
 
+test('hub: control port busy → binds a free port, publishes it, survives a later error', async () => {
+  const net = await import('net');
+  const { Hub } = await import('../hub');
+  const { PATHS } = await import('../util/paths');
+  // Occupy the preferred control port so the hub must fall back.
+  const blocker = net.createServer();
+  await new Promise<void>((r) => blocker.listen(PORT, '127.0.0.1', () => r()));
+  const hub = new Hub({});
+  try {
+    await hub.start();
+    assert.notEqual(hub.controlPort, PORT, 'fell back off the busy port');
+    assert.ok(hub.controlPort > 0);
+    // the actual port is published for out-of-process clients
+    assert.equal(fs.readFileSync(PATHS.controlPortFile, 'utf8'), String(hub.controlPort));
+    // …and the API really serves there
+    const h = (await (await fetch(`http://127.0.0.1:${hub.controlPort}/healthz`)).json()) as { ok: boolean };
+    assert.equal(h.ok, true);
+    // a server error after startup is logged, not thrown
+    (hub as unknown as { control: { emit(e: string, x: unknown): void } }).control.emit('error', new Error('boom'));
+  } finally {
+    await hub.stop();
+    await new Promise<void>((r) => blocker.close(() => r()));
+  }
+  // stop() removed the published-port file
+  assert.equal(fs.existsSync(PATHS.controlPortFile), false);
+});
+
 test('hub: SSE broadcast drops a client whose write throws', async () => {
   const { Hub } = await import('../hub');
   const hub = new Hub({});

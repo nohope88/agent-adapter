@@ -9,7 +9,7 @@ import { ProcessFallback } from './adapters/process-fallback';
 import { detected, byKind, fallbackKinds } from './adapters/registry';
 import { AdapterDescriptor } from './adapters/types';
 import { acquireSingleInstance } from './util/lock';
-import { PATHS } from './util/paths';
+import { PATHS, writeControlPort, clearControlPort } from './util/paths';
 import { logger } from './util/log';
 
 const log = logger('hub');
@@ -31,6 +31,8 @@ export class Hub {
   private sse = new Set<http.ServerResponse>();
   private release: (() => void) | null = null;
   private adapters: AdapterDescriptor[];
+  /** The control-API port actually bound (set on start; may differ from the preferred one). */
+  controlPort = PATHS.controlPort;
 
   constructor(private opts: HubOpts) {
     this.adapters = detected();
@@ -80,6 +82,7 @@ export class Hub {
     await this.ingest.stop();
     await this.uplink.stop();
     if (this.control) await new Promise<void>((r) => this.control!.close(() => r()));
+    clearControlPort();
     this.release?.();
   }
 
@@ -102,12 +105,27 @@ export class Hub {
 
   // ── local control API (CLI ⇄ hub) ────────────────────────────
   private startControl(): Promise<void> {
-    this.control = http.createServer((req, res) => this.onControl(req, res));
-    return new Promise((resolve) => {
-      this.control!.listen(PATHS.controlPort, '127.0.0.1', () => {
-        log.info(`control api on http://127.0.0.1:${PATHS.controlPort}`);
+    const srv = http.createServer((req, res) => this.onControl(req, res));
+    this.control = srv;
+    return new Promise((resolve, reject) => {
+      srv.once('listening', () => {
+        // Past startup, a server-level error must be logged, never crash the hub.
+        srv.removeAllListeners('error');
+        srv.on('error', (e) => log.error('control server error', String(e)));
+        const port = (srv.address() as { port: number }).port;
+        this.controlPort = port;
+        writeControlPort(port); // publish for out-of-process clients (CLI/web)
+        log.info(`control api on http://127.0.0.1:${port}`);
         resolve();
       });
+      srv.once('error', (e: NodeJS.ErrnoException) => {
+        // Preferred port unavailable → let the OS pick a free one and publish it,
+        // so `status`/`answer`/the dashboard still find the hub.
+        log.warn(`control port ${PATHS.controlPort} unavailable (${e.code}) — binding a free port`);
+        srv.once('error', reject); // a failure on the free-port retry is fatal
+        srv.listen(0, '127.0.0.1');
+      });
+      srv.listen(PATHS.controlPort, '127.0.0.1');
     });
   }
 

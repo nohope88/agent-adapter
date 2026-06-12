@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import http from 'http';
-import { PATHS } from './util/paths';
+import { readControlPort } from './util/paths';
 
 /**
  * agent-adapter CLI. Subcommands lazy-require their deps so `hook` stays light
@@ -48,8 +48,8 @@ async function start(rest: string[]): Promise<void> {
   await hub.start();
   process.stdout.write(
     `agent-adapter running (uplink → ${commanderUrl}). ` +
-    `control: http://127.0.0.1:${PATHS.controlPort}  ·  Ctrl-C to stop\n`);
-  const web = args.web ? await startWebUi(args) : null;
+    `control: http://127.0.0.1:${hub.controlPort}  ·  Ctrl-C to stop\n`);
+  const web = args.web ? await startWebUi(args, hub.controlPort) : null;
   const shutdown = async () => { web?.kill(); await hub.stop(); process.exit(0); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
@@ -57,7 +57,7 @@ async function start(rest: string[]): Promise<void> {
 
 /** Spawn the external web dashboard (web/server.js) as a child of the hub.
  *  Fail-open: a missing or broken web UI must never take the adapter down. */
-async function startWebUi(args: Record<string, string | boolean>) {
+async function startWebUi(args: Record<string, string | boolean>, controlPort: number) {
   const path = await import('path');
   const fs = await import('fs');
   const { spawn } = await import('child_process');
@@ -68,8 +68,8 @@ async function startWebUi(args: Record<string, string | boolean>) {
   }
   const webPort = String(typeof args['web-port'] === 'string' ? args['web-port'] : process.env.WEB_PORT || '8787');
   const child = spawn(process.execPath, [server], {
-    // Point the dashboard's /api proxy at THIS hub's control port.
-    env: { ...process.env, WEB_PORT: webPort, AGENT_ADAPTER_CONTROL_PORT: String(PATHS.controlPort) },
+    // Point the dashboard's /api proxy at THIS hub's actual control port.
+    env: { ...process.env, WEB_PORT: webPort, AGENT_ADAPTER_CONTROL_PORT: String(controlPort) },
     stdio: 'inherit',
   });
   child.on('error', (e) => process.stderr.write(`web UI failed to start: ${String(e)}\n`));
@@ -193,7 +193,7 @@ function help(): void {
 // ── tiny control-API client ────────────────────────────────────
 function getJson(pathname: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    http.get({ host: '127.0.0.1', port: PATHS.controlPort, path: pathname }, (res) => {
+    http.get({ host: '127.0.0.1', port: readControlPort(), path: pathname }, (res) => {
       let b = ''; res.on('data', (c) => (b += c));
       res.on('end', () => { try { resolve(JSON.parse(b)); } catch (e) { reject(e); } });
     }).on('error', reject);
@@ -203,7 +203,7 @@ function postJson(pathname: string, body: unknown): Promise<unknown> {
   const data = JSON.stringify(body);
   return new Promise((resolve, reject) => {
     const req = http.request({
-      host: '127.0.0.1', port: PATHS.controlPort, path: pathname, method: 'POST',
+      host: '127.0.0.1', port: readControlPort(), path: pathname, method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
     }, (res) => {
       let b = ''; res.on('data', (c) => (b += c));

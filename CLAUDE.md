@@ -85,7 +85,7 @@ pkill -f 'dist/cli.js start'
 | `src/adapters/process-fallback.ts` | running-process → working/idle baseline for kinds with no hooks/poll. |
 | `src/adapters/registry.ts` | `ALL_ADAPTERS`, `detected()`, `fallbackKinds()`. **Add a provider here.** |
 | `src/runtime.ts` | ACAP uplink: one `KindConn` per kind — REST register → WS (subprotocol bearer) → `hello` gate → status▲ (coalesced/truncated) / cmd▼ (deduped) / ack / ping-pong → reconnect re-registers. `Uplink` fans out by kind. No credential ⇒ no-op sink. |
-| `src/hub.ts` | wires ingest+store+binding+injector+uplink+fallback+pollers; local control HTTP API; single-instance lock. |
+| `src/hub.ts` | wires ingest+store+binding+injector+uplink+fallback+pollers; local control HTTP API (port auto-falls-back if busy, publishes `control.port`); single-instance lock. |
 | `src/hookClient.ts` | the `hook` subcommand each agent invokes; normalizes per-kind payloads → `HookEvent`. |
 | `src/hooks/installer.ts` | detect agents, merge hooks per format, register daemon, credentials. |
 | `src/acapVerify.ts` | static conformance check of descriptors. |

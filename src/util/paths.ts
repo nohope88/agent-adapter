@@ -14,8 +14,11 @@ export const PATHS = {
   ingestSock: path.join(ROOT, 'ingest.sock'),
   /** Windows can't use a unix socket — hooks use TCP loopback instead. */
   ingestTcpPort: Number(process.env.AGENT_ADAPTER_INGEST_PORT || 19284),
-  /** Local control API (CLI ⇄ hub) when running --local or for inspection. */
+  /** Preferred local control-API port (CLI ⇄ hub). The hub falls back to a free
+   *  port if this is taken and publishes the actual one to `controlPortFile`. */
   controlPort: Number(process.env.AGENT_ADAPTER_CONTROL_PORT || 7788),
+  /** Where a running hub records the control port it actually bound. */
+  controlPortFile: path.join(ROOT, 'control.port'),
   log: path.join(ROOT, 'adapter.log'),
 };
 
@@ -23,6 +26,26 @@ export const isWindows = process.platform === 'win32';
 
 export function ensureRoot(): void {
   fs.mkdirSync(ROOT, { recursive: true, mode: 0o700 });
+}
+
+/** Client-side control-port resolution: published file → env/default. */
+export function readControlPort(): number {
+  try {
+    const n = Number(fs.readFileSync(PATHS.controlPortFile, 'utf8').trim());
+    if (Number.isInteger(n) && n > 0) return n;
+  } catch { /* no running hub / unreadable → fall back */ }
+  return PATHS.controlPort;
+}
+
+/** Hub-side: publish the control port it actually bound, for out-of-process clients. */
+export function writeControlPort(port: number): void {
+  ensureRoot();
+  fs.writeFileSync(PATHS.controlPortFile, String(port), { mode: 0o600 });
+}
+
+/** Hub-side: remove the published port on shutdown. */
+export function clearControlPort(): void {
+  try { fs.unlinkSync(PATHS.controlPortFile); } catch { /* already gone */ }
 }
 
 /** Per-agent state dirs we probe to decide which adapters to enable. */
