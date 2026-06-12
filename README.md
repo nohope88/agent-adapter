@@ -52,16 +52,14 @@ Either way it builds, **detects** installed agents, **wires their hooks**, and r
 ## Use
 
 ```bash
-agent-adapter login --token <cmdr_ak_…>           # log in first — required before start
-agent-adapter start                  # run the hub (uplinks to the default Commander)
-agent-adapter start --commander https://your-commander   # override the Commander URL
-agent-adapter status                 # live roster
-agent-adapter answer claude-code:host:SID yes     # react to a waiting agent
-agent-adapter prompt claude-code:host:SID "run the tests again"
-agent-adapter interrupt claude-code:host:SID
-agent-adapter detect                 # which agents are present
-agent-adapter verify                 # acap-verify all adapters
-agent-adapter login --token <cmdr_ak_…> [--commander https://…]   # store the tenant key
+aca login --token <cmdr_ak_…>           # log in first — required before start
+aca start                               # run the adapter (uplinks to the default Commander)
+aca start --commander https://your-commander   # override the Commander URL
+aca start --web                         # …also serve the optional dashboard
+aca status                              # live roster
+aca answer claude-code:host:SID yes     # react to a waiting agent
+aca prompt claude-code:host:SID "run the tests again"
+aca interrupt claude-code:host:SID
 ```
 
 `status`/`answer`/etc. talk to the running hub's local control API (`http://127.0.0.1:7788`).
@@ -102,7 +100,7 @@ src/adapters/<kind>/
   index.ts          # an AdapterDescriptor: capabilities, provides, inject, detectDir, hooks?/poll?
 ```
 
-Then add it to `src/adapters/registry.ts` and run `agent-adapter verify`. Ship at **L0** (status only) immediately; add a `hooks` recipe or `poll` to grow to L1–L3. `acap-verify` enforces the descriptor is well-formed.
+Then add it to `src/adapters/registry.ts` and run `npm run verify`. Ship at **L0** (status only) immediately; add a `hooks` recipe or `poll` to grow to L1–L3. `acap-verify` enforces the descriptor is well-formed.
 
 ---
 

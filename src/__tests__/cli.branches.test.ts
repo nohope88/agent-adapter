@@ -15,14 +15,13 @@ function run(args: string[], env: Record<string, string>, input?: string) {
   });
 }
 
-test('cli subprocess covers hook, interrupt, detect, login, help, unknown', () => {
+test('cli subprocess covers hook, interrupt, login, help, unknown', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-clibr-'));
   const base = { HOME: home, AGENT_ADAPTER_HOME: path.join(home, '.aa'), AGENT_ADAPTER_SKIP_DAEMON: '1' };
   assert.equal(run(['hook', '--kind', 'claude-code', '--event', 'Stop', '--reply', 'none'], base, '{}').status, 0);
   assert.equal(run(['interrupt'], base).status, 2);
-  assert.ok(run(['detect'], base).stdout.includes('claude-code'));
   assert.ok(run(['login', '--token', 'tok'], base).stdout.includes('Credential saved'));
-  assert.ok(run(['--help'], base).stdout.includes('install'));
+  assert.ok(run(['--help'], base).stdout.includes('login'));
   assert.equal(run(['not-a-cmd'], base).status, 2);
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   assert.ok(run(['install'], base).stdout.includes('Detected agents'));

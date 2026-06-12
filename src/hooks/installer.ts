@@ -26,7 +26,7 @@ export function detectReport(): { kind: string; installed: boolean; wired: boole
 function hookInvocation(): string {
   if (process.env.AGENT_ADAPTER_BIN) return `${q(process.env.AGENT_ADAPTER_BIN)} hook`;
   const exec = stableNode();
-  if (path.basename(exec).includes('agent-adapter')) return `${q(exec)} hook`;
+  if (path.basename(exec).includes('aca')) return `${q(exec)} hook`;
   const cli = path.resolve(__dirname, '..', 'cli.js');
   return `${q(exec)} ${q(cli)} hook`;
 }

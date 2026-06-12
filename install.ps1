@@ -41,6 +41,7 @@ Set-Location $Proj
 if ($Action -eq '--uninstall' -or $Action -eq 'uninstall') {
   Say "Removing hooks…"
   node dist\cli.js uninstall
+  try { npm rm -g aca | Out-Null } catch {}
   Say "Done. Remove the task with: schtasks /Delete /TN AgentAdapter /F"
   exit 0
 }
@@ -51,10 +52,15 @@ npm install --no-audit --no-fund
 Say "Building…"
 npm run build
 
+# Make `aca` runnable anywhere (npm global bin is on PATH on Windows).
+Say "Linking the aca command…"
+try { npm link | Out-Null; Say "Installed: aca (npm global bin)" }
+catch { Say "⚠ npm link failed; run directly: node `"$Proj\dist\cli.js`"" }
+
 Say "Detecting agents and wiring hooks…"
 node dist\cli.js install
 
 Say "Done. Log in to start the adapter:"
-Say "  node `"$Proj\dist\cli.js`" login --token <cmdr_ak_…>"
-Say "Then check status:   node `"$Proj\dist\cli.js`" status"
-Say "Optional dashboard:  node `"$Proj\dist\cli.js`" start --web"
+Say "  aca login --token <cmdr_ak_…>"
+Say "Then check status:   aca status"
+Say "Optional dashboard:  aca start --web"

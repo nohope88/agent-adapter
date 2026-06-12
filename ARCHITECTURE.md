@@ -34,7 +34,7 @@ Deep dive for anyone modifying the internals. Pairs with `CLAUDE.md` (rules + fi
 Green/up = status; amber/down = commands. The two directions share `protocol.ts` shapes and the `Envelope`.
 
 ## Lifecycle of a status event
-1. An agent fires a native hook (e.g. Claude `PreToolUse`). The installed entry runs `agent-adapter hook --kind claude-code --event PreToolUse`.
+1. An agent fires a native hook (e.g. Claude `PreToolUse`). The installed entry runs `aca hook --kind claude-code --event PreToolUse`.
 2. `hookClient.runHook` reads the agent's JSON on stdin, `normalize()`s it (per-kind field map) into a `HookEvent`, opens the ingest socket, writes one line, and — for gate-class events — waits ≤800ms for a decision to echo on stdout (else neutral default). Always `exit 0`.
 3. `ingest.ts` parses the line, runs the optional `gate()` (→ `hookReturn.gateFor`) and calls `onEvent`.
 4. `hub.onEvent` → `binding.learn(ev)` (records inject target) + `store.apply(ev)`.

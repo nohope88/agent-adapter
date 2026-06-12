@@ -34,7 +34,7 @@ async function withMain(argv: string[]): Promise<{ out: string; err: string; exi
   return { out, err, exitCode };
 }
 
-test('cli main: hook, help, detect, login, interrupt usage, unknown', async () => {
+test('cli main: hook, help, login, interrupt usage, unknown', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-cmain-'));
   process.env.HOME = home;
   process.env.AGENT_ADAPTER_HOME = path.join(home, '.aa');
@@ -44,10 +44,7 @@ test('cli main: hook, help, detect, login, interrupt usage, unknown', async () =
   assert.equal(hook.exitCode, undefined);
 
   const help = await withMain(['help']);
-  assert.ok(help.out.includes('agent-adapter'));
-
-  const detect = await withMain(['detect']);
-  assert.ok(detect.out.includes('claude-code'));
+  assert.ok(help.out.includes('aca'));
 
   const login = await withMain(['login']);
   assert.ok(login.out.includes('tenant API key'));

@@ -3,7 +3,7 @@ import http from 'http';
 import { readControlPort } from './util/paths';
 
 /**
- * agent-adapter CLI. Subcommands lazy-require their deps so `hook` stays light
+ * aca CLI. Subcommands lazy-require their deps so `hook` stays light
  * (it's invoked on every agent event and must be fast).
  */
 export async function main(): Promise<void> {
@@ -17,7 +17,6 @@ export async function main(): Promise<void> {
     case 'interrupt':       return command('interrupt', rest[0], {});
     case 'install':         return install();
     case 'uninstall':       return uninstall();
-    case 'detect':          return detect();
     case 'verify':          return verify();
     case 'login':           return login(rest);
     case undefined:
@@ -37,7 +36,7 @@ async function start(rest: string[]): Promise<void> {
   const { DEFAULT_COMMANDER } = await import('./commanderClient');
   const credential = loadCredential();
   if (!credential) {
-    process.stderr.write('Not logged in. Run `agent-adapter login --token <cmdr_ak_…> [--commander <https-url>]` first.\n');
+    process.stderr.write('Not logged in. Run `aca login --token <cmdr_ak_…> [--commander <https-url>]` first.\n');
     process.exit(1);
     return;
   }
@@ -47,7 +46,7 @@ async function start(rest: string[]): Promise<void> {
   const hub = new Hub({ commanderUrl, credential });
   await hub.start();
   process.stdout.write(
-    `agent-adapter running (uplink → ${commanderUrl}). ` +
+    `aca running (uplink → ${commanderUrl}). ` +
     `control: http://127.0.0.1:${hub.controlPort}  ·  Ctrl-C to stop\n`);
   const web = args.web ? await startWebUi(args, hub.controlPort) : null;
   const shutdown = async () => { web?.kill(); await hub.stop(); process.exit(0); };
@@ -94,13 +93,13 @@ async function status(): Promise<void> {
         `${dot[st] ?? '?'} ${st.padEnd(7)} ${String(s.agentId).padEnd(34)} ${s.title ?? ''}${w}\n`);
     }
   } catch {
-    process.stderr.write('cannot reach hub — is `agent-adapter start` running?\n');
+    process.stderr.write('cannot reach hub — is `aca start` running?\n');
     process.exit(1);
   }
 }
 
 async function command(intent: string, agentId: string | undefined, extra: Record<string, string>): Promise<void> {
-  if (!agentId) { process.stderr.write(`usage: agent-adapter ${intent} <agentId> [...]\n`); process.exit(2); }
+  if (!agentId) { process.stderr.write(`usage: aca ${intent} <agentId> [...]\n`); process.exit(2); }
   try {
     const ack = await postJson('/command', { agentId, intent, ...extra });
     process.stdout.write(`${JSON.stringify(ack)}\n`);
@@ -120,20 +119,13 @@ async function install(): Promise<void> {
   inst.registerDaemon();
   process.stdout.write(`\nWired hooks for: ${wired.join(', ') || '(none)'}\n`);
   process.stdout.write('Daemon registered (runs the headless adapter).\n');
-  process.stdout.write('Next: `agent-adapter login --token <cmdr_ak_…>` — the adapter starts once you log in.\n');
-  process.stdout.write('Optional dashboard: `agent-adapter start --web`.\n');
+  process.stdout.write('Next: `aca login --token <cmdr_ak_…>` — the adapter starts once you log in.\n');
+  process.stdout.write('Optional dashboard: `aca start --web`.\n');
 }
 
 async function uninstall(): Promise<void> {
   (await import('./hooks/installer')).uninstallHooks();
   process.stdout.write('Hooks removed. (Daemon: launchctl/systemctl/schtasks remove manually if desired.)\n');
-}
-
-async function detect(): Promise<void> {
-  const report = (await import('./hooks/installer')).detectReport();
-  for (const r of report) {
-    process.stdout.write(`${r.installed ? '✓ installed' : '· absent  '}  ${r.kind.padEnd(12)} ${r.wired ? 'hooks' : 'process-baseline'}\n`);
-  }
 }
 
 async function verify(): Promise<void> {
@@ -164,29 +156,23 @@ async function login(rest: string[]): Promise<void> {
     }
     inst.saveCredential(token);
     process.stdout.write('Credential saved.\n');
-    process.stdout.write(`Start with: agent-adapter start${args.commander ? ' --commander ' + args.commander : ''}\n`);
+    process.stdout.write(`Start with: aca start${args.commander ? ' --commander ' + args.commander : ''}\n`);
     return;
   }
   process.stdout.write(
     'Login obtains a tenant API key FROM your Commander (dashboard → API keys) — the adapter only holds it.\n' +
-    'Then: agent-adapter login --token <cmdr_ak_…> [--commander <https-url>]\n');
+    'Then: aca login --token <cmdr_ak_…> [--commander <https-url>]\n');
 }
 
 function help(): void {
-  process.stdout.write(`agent-adapter — listen to & react back to local AI coding agents
+  process.stdout.write(`aca — listen to & react back to local AI coding agents
 
-  start [--commander <url>]                 run the hub (requires login; daemon entrypoint)
-        [--web] [--web-port N] [--open]       …also serve the web dashboard
-  status                                    show the live session roster
-  answer <agentId> <choice>                 react to a waiting agent (e.g. yes)
-  prompt <agentId> <text...>                send a prompt into an agent
-  interrupt <agentId>                       interrupt a running agent
-  install                                   detect agents, wire hooks, register daemon
-  uninstall                                 remove installed hooks
-  detect                                    show which agents are present
-  verify                                    run acap-verify on all adapters
-  login --token <t> [--commander <url>]     store a Commander credential
-  hook --kind <k> --event <e>               (internal) invoked by agent hooks
+  login --token <cmdr_ak_…> [--commander <url>]   store the Commander credential (do this first)
+  start [--commander <url>] [--web]               run the adapter (requires login)
+  status                                          show the live session roster
+  answer <agentId> <choice>                       react to a waiting agent (e.g. yes)
+  prompt <agentId> <text...>                      send a prompt into an agent
+  interrupt <agentId>                             interrupt a running agent
 `);
 }
 

@@ -24,14 +24,13 @@ function run(args: string[], env: Record<string, string> = {}): { status: number
 }
 
 test('cli: help and unknown command', () => {
-  assert.ok(run(['help']).out.includes('agent-adapter'));
+  assert.ok(run(['help']).out.includes('aca'));
   assert.equal(run(['nope']).status, 2);
   assert.ok(run([]).out.includes('start'));
 });
 
-test('cli: verify and detect', () => {
+test('cli: verify', () => {
   assert.equal(run(['verify']).status, 0);
-  assert.ok(run(['detect']).out.includes('claude-code'));
 });
 
 test('cli: login flows', () => {

@@ -43,6 +43,7 @@ cd "$PROJ"
 if [ "$ACTION" = "--uninstall" ] || [ "$ACTION" = "uninstall" ]; then
   say "Removing hooks…"
   node dist/cli.js uninstall || node_modules/.bin/tsx src/cli.ts uninstall 2>/dev/null || true
+  rm -f "$HOME/.local/bin/aca" "/usr/local/bin/aca" 2>/dev/null || true
   say "Done. (Stop the daemon: launchctl unload ~/Library/LaunchAgents/com.agent-adapter.plist  or  systemctl --user disable --now agent-adapter)"
   exit 0
 fi
@@ -53,13 +54,27 @@ npm install --no-audit --no-fund
 say "Building…"
 npm run build
 
+# Make `aca` runnable anywhere: symlink the CLI into a bin dir on PATH.
+say "Linking the aca command…"
+chmod +x "$PROJ/dist/cli.js" 2>/dev/null || true
+BIN_DIR=""
+for d in "$HOME/.local/bin" "/usr/local/bin"; do
+  if [ -d "$d" ] && [ -w "$d" ]; then BIN_DIR="$d"; break; fi
+done
+[ -z "$BIN_DIR" ] && mkdir -p "$HOME/.local/bin" 2>/dev/null && BIN_DIR="$HOME/.local/bin"
+if [ -n "$BIN_DIR" ] && ln -sf "$PROJ/dist/cli.js" "$BIN_DIR/aca" 2>/dev/null; then
+  say "Installed: $BIN_DIR/aca"
+  case ":$PATH:" in *":$BIN_DIR:"*) ;; *) say "⚠ $BIN_DIR is not on PATH — add:  export PATH=\"$BIN_DIR:\$PATH\"";; esac
+else
+  say "⚠ couldn't link globally; run directly:  node \"$PROJ/dist/cli.js\""
+fi
+
 say "Detecting agents and wiring hooks…"
 node dist/cli.js install   # wires hooks + registers the headless daemon
 
 # The daemon runs the headless adapter; `start` waits for a credential, so the
 # adapter goes live once you log in. The web dashboard is opt-in, not installed.
-CLI="node \"$PROJ/dist/cli.js\""
 say "Done. Log in to start the adapter:"
-say "  $CLI login --token <cmdr_ak_…>"
-say "Then check status:  $CLI status"
-say "Optional dashboard:  $CLI start --web"
+say "  aca login --token <cmdr_ak_…>"
+say "Then check status:  aca status"
+say "Optional dashboard:  aca start --web"

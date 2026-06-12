@@ -1,10 +1,10 @@
 {
-  "name": "agent-adapter",
+  "name": "aca",
   "version": "0.1.0",
   "private": true,
-  "description": "Agent Adapter — listens to local AI coding agents (Claude Code, Codex, Cursor, Gemini CLI, OpenClaw, Hermes) and reacts back (answer/confirm/prompt/interrupt). ACAP client; Commander not included.",
+  "description": "aca — listens to local AI coding agents (Claude Code, Codex, Cursor, Gemini CLI, OpenClaw, Hermes) and reacts back (answer/confirm/prompt/interrupt). ACAP client; Commander not included.",
   "bin": {
-    "agent-adapter": "dist/cli.js"
+    "aca": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
