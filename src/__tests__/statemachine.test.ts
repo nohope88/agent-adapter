@@ -12,11 +12,11 @@ test('SessionStart → idle', () => {
   assert.equal(s.sessionId, 's');
 });
 
-test('UserPromptSubmit → working and clears waiting', () => {
+test('UserPromptSubmit → busy and clears waiting', () => {
   let s = reduce(undefined, ev({ event: 'PermissionRequest', message: '?' }));
   assert.equal(s.status, 'waiting');
   s = reduce(s, ev({ event: 'UserPromptSubmit' }));
-  assert.equal(s.status, 'working');
+  assert.equal(s.status, 'busy');
   assert.equal(s.waiting, undefined);
 });
 
@@ -26,20 +26,22 @@ test('PreToolUse AskUserQuestion → waiting with question + options', () => {
     toolInput: { question: 'Run tests?', options: ['yes', 'no'] },
   }));
   assert.equal(s.status, 'waiting');
+  assert.equal(s.waiting?.kind, 'choice');
   assert.equal(s.waiting?.text, 'Run tests?');
   assert.deepEqual(s.waiting?.options, ['yes', 'no']);
 });
 
-test('PreToolUse normal tool → working with activeTool', () => {
+test('PreToolUse normal tool → busy with activeTools', () => {
   const s = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { command: 'ls' } }));
-  assert.equal(s.status, 'working');
-  assert.equal(s.activeTool?.name, 'Bash');
+  assert.equal(s.status, 'busy');
+  assert.equal(s.activeTools?.[0]?.name, 'Bash');
+  assert.equal(typeof s.activeTools?.[0]?.startedAt, 'number');
 });
 
-test('Stop → idle and keeps lastResponse', () => {
+test('Stop → idle and keeps lastReply', () => {
   const s = reduce(undefined, ev({ event: 'Stop', lastResponse: 'done' }));
   assert.equal(s.status, 'idle');
-  assert.equal(s.lastResponse, 'done');
+  assert.equal(s.lastReply, 'done');
 });
 
 test('SessionEnd → ended', () => {
@@ -62,9 +64,9 @@ test('empty incoming field does not overwrite a real value', () => {
   assert.equal(s.cwd, '/repo');
 });
 
-test('status priority waiting > working > idle > ended', () => {
-  assert.ok(statusPriority('waiting') > statusPriority('working'));
-  assert.ok(statusPriority('working') > statusPriority('idle'));
+test('status priority waiting > busy > idle > ended', () => {
+  assert.ok(statusPriority('waiting') > statusPriority('busy'));
+  assert.ok(statusPriority('busy') > statusPriority('idle'));
   assert.ok(statusPriority('idle') > statusPriority('ended'));
 });
 
@@ -75,20 +77,22 @@ test('agentIdOf is kind:host:sessionId', () => {
 test('PermissionRequest → waiting with default options', () => {
   const s = reduce(undefined, ev({ event: 'PermissionRequest', tool: 'Bash' }));
   assert.equal(s.status, 'waiting');
+  assert.equal(s.waiting?.kind, 'approval');
   assert.deepEqual(s.waiting?.options, ['yes', 'no']);
 });
 
 test('Notification → waiting input banner', () => {
   const s = reduce(undefined, ev({ event: 'Notification', message: 'need input' }));
   assert.equal(s.status, 'waiting');
+  assert.equal(s.waiting?.kind, 'input');
   assert.equal(s.waiting?.text, 'need input');
 });
 
-test('PostToolUse clears activeTool', () => {
+test('PostToolUse clears activeTools', () => {
   let s = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { command: 'ls -la' } }));
   s = reduce(s, ev({ event: 'PostToolUse' }));
-  assert.equal(s.status, 'working');
-  assert.equal(s.activeTool, undefined);
+  assert.equal(s.status, 'busy');
+  assert.equal(s.activeTools, undefined);
 });
 
 test('waitingFromTool maps object options and preview fallbacks', () => {
@@ -98,14 +102,14 @@ test('waitingFromTool maps object options and preview fallbacks', () => {
   }));
   assert.deepEqual(s.waiting?.options, ['a', 'b']);
   const p = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { description: 'run' } }));
-  assert.equal(p.activeTool?.preview, 'run');
+  assert.equal(p.activeTools?.[0]?.inputPreview, 'run');
   const j = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { nested: { a: 1 } } }));
-  assert.ok(j.activeTool?.preview);
+  assert.ok(j.activeTools?.[0]?.inputPreview);
 });
 
 test('previewOf returns undefined for null toolInput', () => {
   const s = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: null }));
-  assert.equal(s.activeTool?.preview, undefined);
+  assert.equal(s.activeTools?.[0]?.inputPreview, undefined);
 });
 
 test('previewOf handles string input and empty options on Notification', () => {
@@ -116,5 +120,5 @@ test('previewOf handles string input and empty options on Notification', () => {
 test('previewOf returns undefined when toolInput is not JSON-serializable', () => {
   // BigInt makes JSON.stringify throw → the catch returns undefined.
   const s = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { big: 10n } as never }));
-  assert.equal(s.activeTool?.preview, undefined);
+  assert.equal(s.activeTools?.[0]?.inputPreview, undefined);
 });

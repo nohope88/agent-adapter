@@ -11,7 +11,7 @@ const PORT = 7814;
 
 test('hub: SSE stream, 404, bad bodies, unknown kind', async () => {
   const { Hub } = await import('../hub');
-  const hub = new Hub({ local: true });
+  const hub = new Hub({});
   await hub.start();
   try {
     const sse = await fetch(`http://127.0.0.1:${PORT}/stream`);
@@ -55,9 +55,28 @@ test('hub: SSE stream, 404, bad bodies, unknown kind', async () => {
   }
 });
 
+test('hub: registers a poll adapter on start and tears it down on stop', async () => {
+  const { Hub } = await import('../hub');
+  const hub = new Hub({});
+  let polled = false;
+  // Inject a poll adapter so this is deterministic regardless of which agent
+  // dirs happen to exist on the machine (codex/openclaw are the real pollers).
+  const pollAdapter = {
+    kind: 'openclaw',
+    poll: (_emit: (ev: unknown) => void) => {
+      polled = true;
+      return () => { throw new Error('stop-boom'); }; // exercises the swallowed-error path
+    },
+  };
+  (hub as unknown as { adapters: unknown[] }).adapters = [pollAdapter];
+  await hub.start();
+  assert.ok(polled, 'poll() invoked on start');
+  await hub.stop(); // must not throw despite the poll stopper throwing
+});
+
 test('hub: SSE broadcast drops a client whose write throws', async () => {
   const { Hub } = await import('../hub');
-  const hub = new Hub({ local: true });
+  const hub = new Hub({});
   await hub.start();
   try {
     const sse = (hub as unknown as { sse: Set<{ write(s: string): void }> }).sse;

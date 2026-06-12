@@ -7,6 +7,14 @@ import path from 'path';
 
 const CLI = path.join(__dirname, '..', 'cli.js');
 
+// `start` now requires login; seed a credential and point the uplink at a dead
+// localhost so the hub boots (control API works) without any real network.
+const DEAD_COMMANDER = 'http://127.0.0.1:1';
+function seedCred(root: string): void {
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'credentials.json'), JSON.stringify({ token: 'cmdr_ak_test' }));
+}
+
 function run(args: string[], env: Record<string, string> = {}, input?: string) {
   return spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
@@ -39,8 +47,10 @@ test('cli: status roster with waiting session and uplink start line', async () =
   const env = {
     AGENT_ADAPTER_HOME: path.join(home, '.aa'),
     AGENT_ADAPTER_CONTROL_PORT: '7815',
+    AGENT_ADAPTER_COMMANDER: DEAD_COMMANDER,
   };
-  const hub = spawn(process.execPath, [CLI, 'start', '--local'], { env: { ...process.env, ...env }, stdio: 'ignore' });
+  seedCred(env.AGENT_ADAPTER_HOME);
+  const hub = spawn(process.execPath, [CLI, 'start'], { env: { ...process.env, ...env }, stdio: 'ignore' });
   await new Promise((r) => setTimeout(r, 500));
   try {
     await fetch('http://127.0.0.1:7815/ingest', {
@@ -60,7 +70,8 @@ test('cli: status roster with waiting session and uplink start line', async () =
 
 test('cli: start with existing web dashboard spawns child', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-ch4-'));
-  const r = spawnSync(process.execPath, [CLI, 'start', '--local', '--web', '--web-port', '8792'], {
+  seedCred(path.join(home, '.aa'));
+  const r = spawnSync(process.execPath, [CLI, 'start', '--web', '--web-port', '8792'], {
     encoding: 'utf8',
     timeout: 1200,
     killSignal: 'SIGTERM',
@@ -68,6 +79,7 @@ test('cli: start with existing web dashboard spawns child', () => {
       ...process.env,
       AGENT_ADAPTER_HOME: path.join(home, '.aa'),
       AGENT_ADAPTER_CONTROL_PORT: '7816',
+      AGENT_ADAPTER_COMMANDER: DEAD_COMMANDER,
     },
   });
   const out = (r.stdout || '') + (r.stderr || '');

@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "type": "hello",
+  "id": "codex:ci-box:4471",
+  "ts": "2026-06-11T22:14:06.900Z",
+  "data": {
+    "acap": "1.0",
+    "sessionId": "conn-7f3a2b10",
+    "accepted": {
+      "v": 1,
+      "acap": "1.0",
+      "kind": "codex",
+      "agentId": "codex:ci-box:4471",
+      "level": "L1",
+      "capabilities": ["prompt"],
+      "provides": ["title", "activeTool", "model", "tokens", "cost"]
+    },
+    "heartbeatSec": 30,
+    "maxEnvelopeBytes": 65536,
+    "minStatusIntervalMs": 250
+  }
+}

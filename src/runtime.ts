@@ -1,157 +1,280 @@
 import {
-  ACAP_VERSION, AgentStatus, Ack, Command, Register, Envelope, envelope, SCHEMA_V,
+  ACAP_VERSION, AgentStatus, Ack, Command, Hello, Register, SCHEMA_V,
+  Envelope, envelope, toWireStatus,
 } from './protocol';
 import { AdapterDescriptor } from './adapters/types';
+import { register as restRegister } from './commanderClient';
+import { hostId } from './util/paths';
 import { logger } from './util/log';
 
 const log = logger('uplink');
 
+/** Credential the adapter holds: the tenant API key (cmdr_ak_…). The Commander owns auth. */
 export interface Credential {
   token: string;
-  /** Optional refresh hook — called when the server rejects/expires the token. */
-  refresh?: () => Promise<string>;
 }
 
 export interface RuntimeOpts {
-  commanderUrl?: string;          // wss://… ; absent ⇒ local mode
-  local: boolean;
-  credential?: Credential;
-  adapters: AdapterDescriptor[];  // for the register handshake
-  /** Full current roster, pushed on every (re)connect (replaces retained msgs). */
+  commanderUrl?: string;          // https base
+  credential?: Credential;        // tenant key; absent ⇒ uplink disabled (e.g. tests)
+  adapters: AdapterDescriptor[];  // one connection per detected kind
+  /** Full current roster, pushed on every (re)connect (ACAP carries no retained state). */
   snapshotProvider: () => AgentStatus[];
   /** Handle a command from the Commander; return the Ack to send back. */
   onCommand: (cmd: Command) => Promise<Ack>;
 }
 
+const BACKOFF_BASE = 1000;
+const BACKOFF_CAP = 30_000;
+const FORBIDDEN_BACKOFF = 60_000;   // 4403: back off harder, surface to operator
+const DEFAULT_HEARTBEAT_SEC = 30;
+const DEFAULT_MIN_STATUS_MS = 250;
+const CMD_TTL_MS = 5 * 60_000;      // dedup window (spec §9.3)
+const CMD_MAX = 1000;
+
 /**
- * ACAP client. In local mode it's a no-op sink (everything still works on the
- * machine). With a commanderUrl it holds one WSS uplink: registers, streams
- * status up, receives cmd down, sends ack — and survives drops via backoff,
- * token refresh, and offline coalescing (latest snapshot per agent).
+ * One Commander connection for one agent kind. Implements the full ACAP lifecycle
+ * (spec §6): register (REST) → WS upgrade (subprotocol bearer) → await hello →
+ * stream status / receive cmd / heartbeat → reconnect with backoff. Each reconnect
+ * re-registers, so a 4401/expiry is handled by construction (no stale token reuse).
  */
-export class Uplink {
-  // Node >=22 exposes a global WebSocket at runtime; its types aren't in the
-  // ES lib, so we keep the handle loosely typed rather than pull in the DOM lib.
+class KindConn {
+  // Node ≥22 exposes a global WebSocket; its types aren't in the ES lib, so the
+  // handle stays loosely typed rather than pulling in the DOM lib.
   private ws: any = null;
-  private connected = false;
+  private connected = false;     // socket open
+  private helloReceived = false; // may send status only after hello (§6.3)
   private closing = false;
-  private backoff = 1000;
-  private readonly maxBackoff = 30_000;
-  private buffer = new Map<string, AgentStatus>(); // coalesced while offline
-  private token: string | undefined;
+  private backoff = BACKOFF_BASE;
+  private wsToken: string | undefined;
+  private heartbeatSec = DEFAULT_HEARTBEAT_SEC;
+  private minStatusMs = DEFAULT_MIN_STATUS_MS;
+
+  private buffer = new Map<string, AgentStatus>();   // coalesced while not ready
+  private pending = new Map<string, AgentStatus>();  // coalesced within minStatusMs
+  private lastSentAt = new Map<string, number>();
+  private seenCmds = new Map<string, number>();      // cmdId → expiresAt (dedup)
+
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private expiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private opts: RuntimeOpts) {
-    this.token = opts.credential?.token;
-  }
+  constructor(
+    private commanderUrl: string,
+    private tenantKey: string,
+    private adapter: AdapterDescriptor,
+    private opts: RuntimeOpts,
+  ) {}
 
-  start(): void {
-    if (this.opts.local || !this.opts.commanderUrl) {
-      log.info('local mode — no Commander uplink');
+  get kind(): string { return this.adapter.kind; }
+
+  start(): void { void this.connect(); }
+
+  /** Emit a status snapshot up. Coalesces by agentId while not ready, then throttles to minStatusMs. */
+  sendStatus(s: AgentStatus): void {
+    if (!this.connected || !this.helloReceived || !this.ws) {
+      this.buffer.set(s.agentId, s);
       return;
     }
-    this.open();
-  }
-
-  /** Emit a status snapshot up. Coalesces by agentId while disconnected. */
-  sendStatus(s: AgentStatus): void {
-    if (this.opts.local || !this.opts.commanderUrl) return;
-    if (this.connected && this.ws) {
-      this.send(envelope('status', s, s.agentId));
-    } else {
-      this.buffer.set(s.agentId, s); // keep only the latest per agent
-    }
+    this.maybeSend(s);
   }
 
   async stop(): Promise<void> {
     this.closing = true;
-    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    try { this.ws?.close(); } catch { /* noop */ }
+    this.clearTimers();
+    try { this.ws?.close(1000); } catch { /* noop */ }
     this.ws = null;
   }
 
-  // ── internals ───────────────────────────────────────────────
-  private open(): void {
+  // ── connection lifecycle ─────────────────────────────────────
+  private async connect(): Promise<void> {
     if (this.closing) return;
-    const url = withToken(this.opts.commanderUrl!, this.token);
-    log.info(`connecting ${redact(url)}`);
+    const reg: Register = {
+      v: SCHEMA_V, acap: ACAP_VERSION, kind: this.adapter.kind,
+      agentId: `${this.adapter.kind}:${hostId()}:adapter`,
+      level: this.adapter.level,
+      capabilities: this.adapter.capabilities,
+      provides: this.adapter.provides,
+    };
+    let wsUrl: string;
+    try {
+      const res = await restRegister(this.commanderUrl, this.tenantKey, reg);
+      this.wsToken = res.wsToken;
+      wsUrl = res.wsUrl;
+      if (res.heartbeatSec) this.heartbeatSec = res.heartbeatSec;
+      const ttl = (res.expiresInSec ?? 0) * 1000;
+      if (ttl > 0) this.armExpiry(ttl * 0.8);   // re-register before the token expires (§6.1)
+    } catch (e) {
+      log.warn(`register ${this.adapter.kind} failed`, String(e));
+      this.scheduleReconnect();
+      return;
+    }
+    if (this.closing) return;
+    this.openWs(wsUrl);
+  }
+
+  private openWs(wsUrl: string): void {
     const WSImpl: any = (globalThis as any).WebSocket;
-    if (!WSImpl) { log.error('global WebSocket missing — need Node >= 22'); return; }
+    if (!WSImpl) { log.error('global WebSocket missing — need Node >= 22'); this.scheduleReconnect(); return; }
+    log.info(`connecting ${this.adapter.kind} → ${wsUrl}`);
     let ws: any;
     try {
-      ws = new WSImpl(url);
+      // Subprotocol bearer (spec §4.3 option b) — works with the standard WebSocket
+      // API, which can't set request headers. Never log the wsToken.
+      ws = new WSImpl(wsUrl, [`acap.v1.bearer.${this.wsToken}`]);
     } catch (e) {
       log.error('ws construct failed', String(e));
       this.scheduleReconnect();
       return;
     }
     this.ws = ws;
-
-    ws.addEventListener('open', () => {
-      this.connected = true;
-      this.backoff = 1000;
-      log.info('uplink open — registering');
-      this.register();
-      this.flush();
-    });
+    ws.addEventListener('open', () => { this.connected = true; });
     ws.addEventListener('message', (ev: any) => this.onMessage(ev));
     ws.addEventListener('close', (ev: any) => this.onClose(ev));
     ws.addEventListener('error', () => log.warn('uplink error'));
   }
 
-  private register(): void {
-    for (const a of this.opts.adapters) {
-      const reg: Register = {
-        v: SCHEMA_V, acap: ACAP_VERSION, kind: a.kind,
-        agentId: a.kind, level: a.level,
-        capabilities: a.capabilities, provides: a.provides,
-      };
-      this.send(envelope('register', reg, a.kind));
-    }
-  }
-
-  /** On (re)connect push the full roster, then drain any coalesced buffer. */
-  private flush(): void {
-    for (const s of this.opts.snapshotProvider()) this.send(envelope('status', s, s.agentId));
-    for (const s of this.buffer.values()) this.send(envelope('status', s, s.agentId));
-    this.buffer.clear();
-  }
-
-  private async onMessage(ev: any): Promise<void> {
+  private onMessage(ev: any): void {
     let env: Envelope;
-    try {
-      env = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data)) as Envelope;
-    } catch { return; }
-    if (env.type === 'cmd') {
-      const cmd = env.data as Command;
-      let ack: Ack;
-      try { ack = await this.opts.onCommand(cmd); }
-      catch (e) { ack = { v: SCHEMA_V, cmdId: cmd.cmdId, status: 'rejected', detail: String(e) }; }
-      this.send(envelope('ack', ack, cmd.agentId));
+    try { env = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data)) as Envelope; }
+    catch { return; }
+    if (!env || env.v !== SCHEMA_V) return;          // ignore unknown wire version (§5)
+    switch (env.type) {
+      case 'hello': return this.onHello(env.data as Hello);
+      case 'ping': { this.send(envelope('pong', {}, env.id)); this.armWatchdog(); return; }
+      case 'cmd': return void this.onCmd(env);
+      default: return;                                // ignore unknown/unused types (§5)
     }
   }
 
-  private async onClose(ev: any): Promise<void> {
-    this.connected = false;
-    this.ws = null;
-    if (this.closing) return;
-    // 4401/1008 → auth problem: try to refresh the token before reconnecting.
-    if ((ev.code === 4401 || ev.code === 1008) && this.opts.credential?.refresh) {
-      try { this.token = await this.opts.credential.refresh(); log.info('token refreshed'); }
-      catch (e) { log.warn('token refresh failed', String(e)); }
+  private onHello(data: Hello): void {
+    this.helloReceived = true;
+    this.backoff = BACKOFF_BASE;                      // healthy connection: reset backoff
+    if (data?.heartbeatSec) this.heartbeatSec = data.heartbeatSec;
+    if (typeof data?.minStatusIntervalMs === 'number') this.minStatusMs = data.minStatusIntervalMs;
+    log.info(`uplink ready: ${this.adapter.kind}`);
+    this.armWatchdog();
+    this.flush();
+  }
+
+  private async onCmd(env: Envelope): Promise<void> {
+    const data = (env.data || {}) as Partial<Command>;
+    const cmdId = data.cmdId || '';
+    const agentId = env.id || data.agentId || '';
+    // At-least-once delivery → dedupe on cmdId (spec §9.3, a MUST).
+    if (cmdId && !this.rememberCmd(cmdId)) {
+      this.send(envelope('ack', { cmdId, status: 'duplicate' } as Ack, agentId));
+      return;
     }
+    const cmd: Command = {
+      cmdId, intent: data.intent as Command['intent'], agentId,
+      source: data.source, prompt: data.prompt, answer: data.answer, mode: data.mode,
+    };
+    let ack: Ack;
+    try { ack = await this.opts.onCommand(cmd); }
+    catch (e) { ack = { cmdId, status: 'rejected', reason: 'agent-error', detail: String(e) }; }
+    this.send(envelope('ack', ack, agentId));
+  }
+
+  private onClose(ev: any): void {
+    this.connected = false;
+    this.helloReceived = false;
+    this.ws = null;
+    this.clearTransientTimers();
+    if (this.closing) return;
+    const code = ev?.code;
+    if (code === 4403) {
+      log.error(`${this.adapter.kind} forbidden (4403) — check tenant quota/policy`);
+      this.backoff = FORBIDDEN_BACKOFF;
+    } else if (code === 4429) {
+      this.minStatusMs = Math.max(this.minStatusMs * 2, DEFAULT_MIN_STATUS_MS);
+      log.warn(`${this.adapter.kind} rate limited (4429) — slowing to ${this.minStatusMs}ms`);
+    }
+    // 4401 (token expired/revoked), 4408 (heartbeat), 1011, 1000, etc. → reconnect,
+    // which re-registers for a fresh token (§6.2 — never retry the same token).
     this.scheduleReconnect();
   }
 
+  // ── status sending ───────────────────────────────────────────
+  private maybeSend(s: AgentStatus): void {
+    const now = Date.now();
+    const since = now - (this.lastSentAt.get(s.agentId) ?? 0);
+    if (this.minStatusMs <= 0 || since >= this.minStatusMs) {
+      this.emitStatus(s);
+    } else {
+      this.pending.set(s.agentId, s);                // coalesce; trailing flush below
+      if (!this.flushTimer) {
+        this.flushTimer = setTimeout(() => this.drainPending(), Math.max(this.minStatusMs - since, 0));
+        this.flushTimer.unref?.();
+      }
+    }
+  }
+
+  private drainPending(): void {
+    this.flushTimer = null;
+    if (!this.connected || !this.helloReceived) return;
+    for (const s of this.pending.values()) this.emitStatus(s);
+    this.pending.clear();
+  }
+
+  private emitStatus(s: AgentStatus): void {
+    this.lastSentAt.set(s.agentId, Date.now());
+    this.send(envelope('status', toWireStatus(s), s.agentId));
+  }
+
+  /** On hello, push the full roster for this kind (resync), then drain the offline buffer. */
+  private flush(): void {
+    for (const s of this.opts.snapshotProvider()) if (s.kind === this.adapter.kind) this.maybeSend(s);
+    for (const s of this.buffer.values()) this.maybeSend(s);
+    this.buffer.clear();
+  }
+
+  // ── dedup ────────────────────────────────────────────────────
+  private rememberCmd(id: string): boolean {
+    const now = Date.now();
+    const exp = this.seenCmds.get(id);
+    if (exp && exp > now) return false;               // already processed
+    this.seenCmds.set(id, now + CMD_TTL_MS);
+    if (this.seenCmds.size > CMD_MAX) {
+      const oldest = this.seenCmds.keys().next().value;
+      if (oldest !== undefined) this.seenCmds.delete(oldest);
+    }
+    return true;
+  }
+
+  // ── timers ───────────────────────────────────────────────────
   private scheduleReconnect(): void {
-    if (this.closing) return;
-    const jitter = Math.floor(this.backoff * 0.2 * pseudoRandom());
-    const delay = Math.min(this.backoff, this.maxBackoff) + jitter;
-    log.info(`reconnect in ${delay}ms`);
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.open(); }, delay);
-    if (this.reconnectTimer.unref) this.reconnectTimer.unref();
-    this.backoff = Math.min(this.backoff * 2, this.maxBackoff);
+    if (this.closing || this.reconnectTimer) return;
+    const delay = Math.max(250, pseudoRandom() * Math.min(this.backoff, BACKOFF_CAP)); // full jitter, no hot-loop
+    log.info(`reconnect ${this.adapter.kind} in ${Math.round(delay)}ms`);
+    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; void this.connect(); }, delay);
+    this.reconnectTimer.unref?.();
+    this.backoff = Math.min(this.backoff * 2, BACKOFF_CAP);
+  }
+
+  private armWatchdog(): void {
+    if (this.watchdog) clearTimeout(this.watchdog);
+    // No ping for 2×heartbeatSec ⇒ treat the socket as dead and reconnect (§6.4).
+    this.watchdog = setTimeout(() => { try { this.ws?.close(4408); } catch { /* noop */ } }, this.heartbeatSec * 2000);
+    this.watchdog.unref?.();
+  }
+
+  private armExpiry(ms: number): void {
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    this.expiryTimer = setTimeout(() => { try { this.ws?.close(4401); } catch { /* noop */ } }, ms);
+    this.expiryTimer.unref?.();
+  }
+
+  private clearTransientTimers(): void {
+    if (this.watchdog) { clearTimeout(this.watchdog); this.watchdog = null; }
+    if (this.expiryTimer) { clearTimeout(this.expiryTimer); this.expiryTimer = null; }
+    if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
+  }
+
+  private clearTimers(): void {
+    this.clearTransientTimers();
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
   }
 
   private send(env: Envelope): void {
@@ -159,14 +282,38 @@ export class Uplink {
   }
 }
 
-function withToken(url: string, token?: string): string {
-  if (!token) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}token=${encodeURIComponent(token)}`;
+/**
+ * ACAP client. With no Commander URL / no credential it's a no-op sink (the hub
+ * stays functional on the machine — used by tests). Otherwise it holds one
+ * KindConn per detected kind and fans status out to the matching connection.
+ */
+export class Uplink {
+  private conns: KindConn[] = [];
+
+  constructor(private opts: RuntimeOpts) {}
+
+  start(): void {
+    if (!this.opts.commanderUrl || !this.opts.credential) {
+      log.info('no credential — Commander uplink disabled');
+      return;
+    }
+    for (const a of this.opts.adapters) {
+      const c = new KindConn(this.opts.commanderUrl, this.opts.credential.token, a, this.opts);
+      this.conns.push(c);
+      c.start();
+    }
+  }
+
+  sendStatus(s: AgentStatus): void {
+    for (const c of this.conns) if (c.kind === s.kind) c.sendStatus(s);
+  }
+
+  async stop(): Promise<void> {
+    for (const c of this.conns) await c.stop();
+    this.conns = [];
+  }
 }
-function redact(url: string): string {
-  return url.replace(/token=[^&]+/, 'token=***');
-}
+
 /** Deterministic-ish jitter without Math.random (kept simple, not crypto). */
 function pseudoRandom(): number {
   return (Date.now() % 1000) / 1000;

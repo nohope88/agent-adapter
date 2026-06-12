@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "ack",
+  "id": "claude-code:mbp.local:8123",
+  "ts": "2026-06-11T22:14:31.140Z",
+  "data": {
+    "cmdId": "3f9c8e21-7d4a-4b2e-9c10-aa1bf0e7c512",
+    "status": "delivered",
+    "detail": "hook approved"
+  }
+}

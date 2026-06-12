@@ -74,30 +74,6 @@ test('injector: pty answer path', async () => {
   assert.ok(writes.some((w) => w.includes('yes')));
 });
 
-test('runtime: buffers offline status and withToken appends query', async () => {
-  class MockWS {
-    static instances: MockWS[] = [];
-    readyState = 0;
-    private listeners: Record<string, Array<(ev?: unknown) => void>> = {};
-    constructor(_url: string) { MockWS.instances.push(this); setImmediate(() => { this.readyState = 1; for (const fn of this.listeners.open || []) fn(); }); }
-    addEventListener(t: string, fn: (ev?: unknown) => void) { (this.listeners[t] ??= []).push(fn); }
-    send() {}
-    close() { for (const fn of this.listeners.close || []) fn({ code: 1000 }); }
-  }
-  (globalThis as { WebSocket?: unknown }).WebSocket = MockWS;
-  const { Uplink } = await import('../runtime');
-  const u = new Uplink({
-    local: false, commanderUrl: 'wss://x', credential: { token: 'abc' },
-    adapters: [], snapshotProvider: () => [],
-    onCommand: async (c) => ({ v: 1, cmdId: c.cmdId, status: 'delivered' }),
-  });
-  u.sendStatus({ v: 1, agentId: 'a:host:s', kind: 'x', host: 'h', sessionId: 's', ts: '', status: 'idle' });
-  u.start();
-  await new Promise((r) => setImmediate(r));
-  await u.stop();
-  delete (globalThis as { WebSocket?: unknown }).WebSocket;
-});
-
 test('cli: interrupt and install output paths', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-cov-cli-'));
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });

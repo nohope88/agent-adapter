@@ -1,0 +1,41 @@
+{
+  "v": 1,
+  "type": "status",
+  "id": "claude-code:mbp.local:8123",
+  "ts": "2026-06-11T22:14:07.182Z",
+  "data": {
+    "agentId": "claude-code:mbp.local:8123",
+    "kind": "claude-code",
+    "status": "waiting",
+    "attention": "needsYou",
+    "title": "Refactor auth module",
+    "cwd": "~/repos/api",
+    "branch": "feat/auth",
+    "model": "claude-opus-4-8",
+    "mode": "default",
+    "classification": "plain",
+    "activeTools": [
+      { "name": "Bash", "inputPreview": "xcodebuild test", "startedAt": 1749161647000 }
+    ],
+    "tokens": { "input": 142000, "output": 8300, "cacheRead": 51000, "cacheWrite": 1200 },
+    "context": { "used": 142000, "limit": 200000 },
+    "cost": { "usd": 1.23 },
+    "waiting": {
+      "kind": "approval",
+      "text": "Run Bash xcodebuild?",
+      "options": ["yes", "no"]
+    },
+    "todos": [
+      { "title": "wire STT", "status": "in_progress" },
+      { "title": "ship device UI", "status": "pending" }
+    ],
+    "workflow": null,
+    "lastPrompt": "refactor the auth module",
+    "lastReply": "I'll start by reading auth.ts…",
+    "errorCount": 0,
+    "lastStopReason": "",
+    "pid": 8123,
+    "startedAt": 1749161600000,
+    "updatedAt": 1749161647182
+  }
+}

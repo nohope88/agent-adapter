@@ -7,6 +7,14 @@ import path from 'path';
 
 const CLI = path.join(__dirname, '..', 'cli.js');
 
+// `start` now requires login; seed a credential + a dead Commander so the hub
+// boots (control API works) without any real network.
+const DEAD_COMMANDER = 'http://127.0.0.1:1';
+function seedCred(root: string): void {
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'credentials.json'), JSON.stringify({ token: 'cmdr_ak_test' }));
+}
+
 function run(args: string[], env: Record<string, string> = {}): { status: number | null; out: string; err: string } {
   const r = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
@@ -29,7 +37,7 @@ test('cli: verify and detect', () => {
 test('cli: login flows', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-cli-'));
   const env = { AGENT_ADAPTER_HOME: path.join(home, '.agent-adapter') };
-  assert.ok(run(['login'], env).out.includes('device-code'));
+  assert.ok(run(['login'], env).out.includes('tenant API key'));
   assert.ok(run(['login', '--token', 't', '--commander', 'wss://x'], env).out.includes('Credential saved'));
 });
 
@@ -45,10 +53,12 @@ test('cli: answer usage and command against subprocess hub', async () => {
     AGENT_ADAPTER_HOME: path.join(home, '.aa'),
     AGENT_ADAPTER_CONTROL_PORT: '7812',
     AGENT_ADAPTER_SKIP_DAEMON: '1',
+    AGENT_ADAPTER_COMMANDER: DEAD_COMMANDER,
   };
   assert.equal(run(['answer'], env).status, 2);
 
-  const hubProc = spawn(process.execPath, [CLI, 'start', '--local'], {
+  seedCred(env.AGENT_ADAPTER_HOME);
+  const hubProc = spawn(process.execPath, [CLI, 'start'], {
     env: { ...process.env, ...env },
     stdio: 'ignore',
   });
@@ -72,7 +82,8 @@ test('cli: answer usage and command against subprocess hub', async () => {
 
 test('cli: start --web skips missing dashboard (non-blocking)', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-cli4-'));
-  const r = spawnSync(process.execPath, [CLI, 'start', '--local', '--web'], {
+  seedCred(path.join(home, '.aa'));
+  const r = spawnSync(process.execPath, [CLI, 'start', '--web'], {
     encoding: 'utf8',
     timeout: 1500,
     killSignal: 'SIGTERM',
@@ -80,6 +91,7 @@ test('cli: start --web skips missing dashboard (non-blocking)', () => {
       ...process.env,
       AGENT_ADAPTER_HOME: path.join(home, '.aa'),
       AGENT_ADAPTER_CONTROL_PORT: '7813',
+      AGENT_ADAPTER_COMMANDER: DEAD_COMMANDER,
     },
   });
   const out = (r.stdout || '') + (r.stderr || '');

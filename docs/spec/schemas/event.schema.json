@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcommander.dev/acap/1.0/event.schema.json",
+  "title": "ACAP event payload (either direction)",
+  "description": "The `data` of a type:event envelope. Optional, never-required discrete notification. MUST NOT carry required state absent from status. Also used for the optional pre-close error frame (name:\"error\").",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name": {
+      "description": "Event name, lowerCamelCase. Open vocabulary; well-known: compacted, subagentSpawned, interrupted, error.",
+      "type": "string"
+    },
+    "code": {
+      "description": "Numeric code for name:error (mirrors WS close codes).",
+      "type": "integer"
+    },
+    "message": { "type": "string" }
+  },
+  "additionalProperties": true
+}

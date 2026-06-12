@@ -34,14 +34,20 @@ async function start(rest: string[]): Promise<void> {
   const args = flags(rest);
   const { Hub } = await import('./hub');
   const { loadCredential } = await import('./hooks/installer');
+  const { DEFAULT_COMMANDER } = await import('./commanderClient');
+  const credential = loadCredential();
+  if (!credential) {
+    process.stderr.write('Not logged in. Run `agent-adapter login --token <cmdr_ak_…> [--commander <https-url>]` first.\n');
+    process.exit(1);
+    return;
+  }
   const commanderUrl = typeof args.commander === 'string'
     ? args.commander
-    : process.env.AGENT_ADAPTER_COMMANDER;
-  const local = Boolean(args.local) || !commanderUrl;
-  const hub = new Hub({ local, commanderUrl, credential: loadCredential() });
+    : (process.env.AGENT_ADAPTER_COMMANDER || DEFAULT_COMMANDER);
+  const hub = new Hub({ commanderUrl, credential });
   await hub.start();
   process.stdout.write(
-    `agent-adapter running (${local ? 'local' : 'uplink → ' + commanderUrl}). ` +
+    `agent-adapter running (uplink → ${commanderUrl}). ` +
     `control: http://127.0.0.1:${PATHS.controlPort}  ·  Ctrl-C to stop\n`);
   const web = args.web ? await startWebUi(args) : null;
   const shutdown = async () => { web?.kill(); await hub.stop(); process.exit(0); };
@@ -80,7 +86,7 @@ async function status(): Promise<void> {
   try {
     const roster = (await getJson('/agents')) as Array<Record<string, unknown>>;
     if (!roster.length) { process.stdout.write('(no active sessions)\n'); return; }
-    const dot: Record<string, string> = { waiting: '⚠', working: '●', idle: '○', error: '✖', ended: '·' };
+    const dot: Record<string, string> = { waiting: '⚠', busy: '●', idle: '○', error: '✖', ended: '·' };
     for (const s of roster) {
       const st = String(s.status);
       const w = s.waiting ? `  ← ${(s.waiting as { text: string }).text}` : '';
@@ -144,20 +150,32 @@ async function login(rest: string[]): Promise<void> {
   const args = flags(rest);
   const inst = await import('./hooks/installer');
   if (args.token) {
-    inst.saveCredential(String(args.token));
+    const token = String(args.token);
+    // Best-effort fail-fast: verify the key when an http(s) Commander is named.
+    if (typeof args.commander === 'string' && /^https?:\/\//i.test(args.commander)) {
+      try {
+        const { verifyKey } = await import('./commanderClient');
+        const who = await verifyKey(args.commander, token);
+        const acct = who.userEmail || who.userName || who.keyName || 'account';
+        process.stdout.write(`Key verified — ${acct} (acap ${who.acap || '?'}).\n`);
+      } catch (e) {
+        process.stdout.write(`Warning: could not verify key against ${args.commander}: ${String(e)}\n`);
+      }
+    }
+    inst.saveCredential(token);
     process.stdout.write('Credential saved.\n');
-    if (args.commander) process.stdout.write(`Start with: agent-adapter start --commander ${args.commander}\n`);
+    process.stdout.write(`Start with: agent-adapter start${args.commander ? ' --commander ' + args.commander : ''}\n`);
     return;
   }
   process.stdout.write(
-    'Login obtains a token FROM your Commander (device-code or dashboard) — the adapter only holds it.\n' +
-    'Then: agent-adapter login --token <token> [--commander <wss-url>]\n');
+    'Login obtains a tenant API key FROM your Commander (dashboard → API keys) — the adapter only holds it.\n' +
+    'Then: agent-adapter login --token <cmdr_ak_…> [--commander <https-url>]\n');
 }
 
 function help(): void {
   process.stdout.write(`agent-adapter — listen to & react back to local AI coding agents
 
-  start [--local] [--commander <url>]       run the hub (daemon entrypoint)
+  start [--commander <url>]                 run the hub (requires login; daemon entrypoint)
         [--web] [--web-port N] [--open]       …also serve the web dashboard
   status                                    show the live session roster
   answer <agentId> <choice>                 react to a waiting agent (e.g. yes)

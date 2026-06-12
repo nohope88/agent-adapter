@@ -2,9 +2,9 @@
 
 Listen to local AI coding agents (**Claude Code · Codex · Cursor · Gemini CLI · OpenClaw · Hermes**) in real time — `working / idle / waiting` — and **react back** (answer an approval, confirm, prompt, interrupt).
 
-This is **Tier 1 (the Agent Adapter)** from `design.html`. It is an **ACAP client**: it can uplink to a Commander you run elsewhere, but the **Commander is not included** here. It also runs fully standalone with `--local`.
+It is an **ACAP client** (the protocol is specified in [`docs/spec/ACAP.md`](docs/spec/ACAP.md) + `docs/spec/schemas/`): it uplinks to a **Commander** you run elsewhere (default `https://commander-api.autonomous.ai`), but the **Commander is not included** here. **Running it requires logging in** with a tenant API key first.
 
-> Scope: the adapter only. No cloud Commander, no web dashboard, no voice/ESP32 (those are deferred from the design doc).
+> Scope: the adapter only. No cloud Commander, no web dashboard, no voice/ESP32 — those are Commander/device concerns in the ACAP spec, deliberately out of scope here.
 
 ---
 
@@ -52,15 +52,16 @@ Either way it builds, **detects** installed agents, **wires their hooks**, and r
 ## Use
 
 ```bash
-agent-adapter start --local          # run the hub locally (no Commander)
-agent-adapter start --commander wss://your-commander/agent   # with uplink
+agent-adapter login --token <cmdr_ak_…>           # log in first — required before start
+agent-adapter start                  # run the hub (uplinks to the default Commander)
+agent-adapter start --commander https://your-commander   # override the Commander URL
 agent-adapter status                 # live roster
 agent-adapter answer claude-code:host:SID yes     # react to a waiting agent
 agent-adapter prompt claude-code:host:SID "run the tests again"
 agent-adapter interrupt claude-code:host:SID
 agent-adapter detect                 # which agents are present
 agent-adapter verify                 # acap-verify all adapters
-agent-adapter login --token <t> --commander wss://…   # store a Commander credential
+agent-adapter login --token <cmdr_ak_…> [--commander https://…]   # store the tenant key
 ```
 
 `status`/`answer`/etc. talk to the running hub's local control API (`http://127.0.0.1:7788`).
@@ -110,13 +111,14 @@ Then add it to `src/adapters/registry.ts` and run `agent-adapter verify`. Ship a
 ```
 src/
   protocol.ts        canonical schema (AgentStatus / Command / Ack / envelope)
-  statemachine.ts    events → working/idle/waiting (per session)
+  statemachine.ts    events → idle/busy/waiting/error/ended (per session)
   store.ts           snapshot store + throttle + TTL prune
   binding.ts         session → inject target
   ingest.ts          local socket server (hook events in, gate decision out)
   injector/          pty (tmux/managed) · hookReturn · nativeApi · dispatch
   adapters/          claude-code · codex · cursor · gemini · openclaw · hermes · process-fallback
-  runtime.ts         ACAP uplink client (reconnect/refresh/offline) + --local
+  commanderClient.ts REST register + key verify (POST /v1/agents/register)
+  runtime.ts         ACAP uplink: per-kind register→WS→hello→status/cmd/ack→reconnect
   hub.ts             wires it all + local control API
   hookClient.ts      the `hook` subcommand each agent invokes
   hooks/installer.ts detect agents · wire hooks · register daemon · credentials

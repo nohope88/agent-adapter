@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcommander.dev/acap/1.0/envelope.schema.json",
+  "title": "ACAP message envelope",
+  "description": "Every ACAP WebSocket message is one JSON object matching this envelope. The `data` payload is validated by the per-type schema selected by `type`.",
+  "type": "object",
+  "required": ["v", "type", "ts", "data"],
+  "properties": {
+    "v": {
+      "description": "Envelope/wire major version. MUST be 1 for ACAP 1.0.",
+      "const": 1
+    },
+    "type": {
+      "description": "Message type; selects the payload schema. Receivers MUST ignore unknown types.",
+      "type": "string",
+      "enum": ["hello", "status", "event", "ack", "cmd", "ping", "pong"]
+    },
+    "id": {
+      "description": "agentId the message concerns (source agentId for adapter→server, target agentId for server→adapter). Optional only for connection-scoped frames (ping/pong/hello).",
+      "type": "string"
+    },
+    "ts": {
+      "description": "RFC 3339 / ISO 8601 UTC timestamp, millisecond precision.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "data": {
+      "description": "Type-specific payload. Validated by the matching schema in this directory.",
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "enum": ["status", "event", "ack", "cmd"] } } },
+      "then": { "required": ["id"] }
+    }
+  ],
+  "additionalProperties": true
+}

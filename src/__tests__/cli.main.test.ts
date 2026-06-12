@@ -50,7 +50,7 @@ test('cli main: hook, help, detect, login, interrupt usage, unknown', async () =
   assert.ok(detect.out.includes('claude-code'));
 
   const login = await withMain(['login']);
-  assert.ok(login.out.includes('device-code'));
+  assert.ok(login.out.includes('tenant API key'));
 
   const tok = await withMain(['login', '--token', 't', '--commander', 'wss://x']);
   assert.ok(tok.out.includes('Credential saved'));

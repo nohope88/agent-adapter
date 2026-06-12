@@ -6,7 +6,7 @@
 // Cards are reconciled in place by agentId so a live update never clears the
 // prompt field you're typing in.
 
-const PRIORITY = { waiting: 0, error: 1, working: 2, idle: 3, ended: 4 };
+const PRIORITY = { waiting: 0, error: 1, busy: 2, idle: 3, ended: 4 };
 const KIND_BADGE = {
   'claude-code': 'CC', codex: 'CX', cursor: 'CU', gemini: 'GM', openclaw: 'OC', hermes: 'HM',
 };
@@ -47,7 +47,7 @@ function setConn(ok) {
 // ── Render ────────────────────────────────────────────────────────
 function render() {
   const list = [...sessions.values()].sort(
-    (a, b) => (PRIORITY[a.status] - PRIORITY[b.status]) || (b.ts || '').localeCompare(a.ts || ''),
+    (a, b) => (PRIORITY[a.status] - PRIORITY[b.status]) || ((b.updatedAt || 0) - (a.updatedAt || 0)),
   );
 
   // Remove cards for sessions no longer present.
@@ -122,15 +122,16 @@ function buildCard(agentId) {
 function updateCard(el, s) {
   el.dataset.status = s.status;
   el.querySelector('.kind').textContent = s.kind || '';
-  el.querySelector('.ts').textContent = relTime(s.ts);
+  el.querySelector('.ts').textContent = relTime(s.updatedAt);
   el.querySelector('.title').textContent = s.title || s.sessionId || s.agentId;
   el.querySelector('.subtitle').textContent = s.cwd || '';
 
-  // Meter clue (right of "Activity"): the live tool, or a short last response.
+  // Meter clue (right of "Activity"): the live tool, or a short last reply.
   let clue = '';
+  const tool = s.activeTools && s.activeTools[0];
   if (s.status === 'waiting') clue = 'awaiting reply';
-  else if (s.activeTool && s.activeTool.name) clue = s.activeTool.name;
-  else if (s.lastResponse) clue = '“' + s.lastResponse.slice(0, 44) + '”';
+  else if (tool && tool.name) clue = tool.name;
+  else if (s.lastReply) clue = '“' + s.lastReply.slice(0, 44) + '”';
   el.querySelector('.m-tool').textContent = clue;
 
   // Footer: agent avatar + short id + status badge.
@@ -202,7 +203,7 @@ function toast(msg, kind) {
 
 function relTime(ts) {
   if (!ts) return '';
-  const then = Date.parse(ts);
+  const then = typeof ts === 'number' ? ts : Date.parse(ts);
   if (Number.isNaN(then)) return '';
   const s = Math.max(0, Math.round((Date.now() - then) / 1000));
   if (s < 60) return s + 's ago';
@@ -218,7 +219,7 @@ function safeParse(s, fallback) {
 setInterval(() => {
   for (const [id, el] of cardEls) {
     const s = sessions.get(id);
-    if (s) el.querySelector('.ts').textContent = relTime(s.ts);
+    if (s) el.querySelector('.ts').textContent = relTime(s.updatedAt);
   }
 }, 15000);
 

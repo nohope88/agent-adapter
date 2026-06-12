@@ -4,9 +4,10 @@ import { logger } from './util/log';
 
 const log = logger('store');
 
-/** Fields whose change is "visible" — emit upstream only when one of these moves. */
+/** Fields whose change is "visible" — emit upstream only when one of these moves.
+ *  `updatedAt` is deliberately excluded (spec §8.6: it MUST NOT count as a change). */
 const VISIBLE: (keyof AgentStatus)[] = [
-  'status', 'title', 'cwd', 'model', 'mode', 'lastResponse',
+  'status', 'title', 'cwd', 'model', 'mode', 'lastReply',
 ];
 
 type Listener = (s: AgentStatus) => void;
@@ -62,7 +63,7 @@ export class SessionStore {
   roster(): AgentStatus[] {
     return [...this.map.values()].sort((a, b) => {
       const p = statusPriority(b.status) - statusPriority(a.status);
-      return p !== 0 ? p : b.ts.localeCompare(a.ts);
+      return p !== 0 ? p : b.updatedAt - a.updatedAt;
     });
   }
 
@@ -83,7 +84,7 @@ export class SessionStore {
       const last = this.lastEventAt.get(id) ?? 0;
       if (now - last > this.staleMs) {
         if (s.status !== 'ended') {
-          const ended = { ...s, status: 'ended' as const, ts: new Date().toISOString() };
+          const ended = { ...s, status: 'ended' as const, updatedAt: Date.now() };
           this.map.set(id, ended);
           for (const l of this.listeners) l(ended);
         } else {
@@ -100,6 +101,6 @@ function visibleChange(a: AgentStatus, b: AgentStatus): boolean {
   // waiting banner appearing / disappearing / changing is always visible
   if (Boolean(a.waiting) !== Boolean(b.waiting)) return true;
   if (a.waiting && b.waiting && a.waiting.text !== b.waiting.text) return true;
-  if (a.activeTool?.name !== b.activeTool?.name) return true;
+  if (a.activeTools?.[0]?.name !== b.activeTools?.[0]?.name) return true;
   return false;
 }

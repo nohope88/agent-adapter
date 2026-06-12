@@ -6,7 +6,7 @@ const WAITING_TOOLS = new Set(['AskUserQuestion', 'AskQuestion', 'ask_user_quest
 
 /** Status priority when reconciling — higher wins for display/roster sort. */
 const PRIORITY: Record<Status, number> = {
-  waiting: 4, error: 3, working: 2, idle: 1, ended: 0,
+  waiting: 4, error: 3, busy: 2, idle: 1, ended: 0,
 };
 
 export function agentIdOf(kind: string, sessionId: string): string {
@@ -23,16 +23,15 @@ export function reduce(prev: AgentStatus | undefined, ev: HookEvent): AgentStatu
   const next: AgentStatus = prev
     ? { ...prev }
     : {
-        v: 1,
         agentId: agentIdOf(kind, sessionId),
         kind,
         host: hostId(),
         sessionId,
-        ts: new Date().toISOString(),
         status: 'idle',
+        updatedAt: Date.now(),
       };
 
-  next.ts = new Date().toISOString();
+  next.updatedAt = Date.now();
 
   // ── oc-claw pitfall #2: source is upgrade-only, never downgrade.
   if (ev.source && shouldUpgradeSource(prev?.kind, ev.source)) next.kind = ev.source;
@@ -51,7 +50,7 @@ export function reduce(prev: AgentStatus | undefined, ev: HookEvent): AgentStatu
       break;
 
     case 'UserPromptSubmit':
-      next.status = 'working';
+      next.status = 'busy';
       clearWaiting(next);
       break;
 
@@ -61,16 +60,16 @@ export function reduce(prev: AgentStatus | undefined, ev: HookEvent): AgentStatu
         next.status = 'waiting';
         next.waiting = waitingFromTool(ev);
       } else {
-        next.status = 'working';
-        next.activeTool = { name: tool, preview: previewOf(ev.toolInput), startedAt: next.ts };
+        next.status = 'busy';
+        next.activeTools = [{ name: tool, inputPreview: previewOf(ev.toolInput), startedAt: next.updatedAt }];
         clearWaiting(next);
       }
       break;
     }
 
     case 'PostToolUse':
-      next.status = 'working';
-      next.activeTool = undefined;
+      next.status = 'busy';
+      next.activeTools = undefined;
       clearWaiting(next);
       break;
 
@@ -95,14 +94,14 @@ export function reduce(prev: AgentStatus | undefined, ev: HookEvent): AgentStatu
 
     case 'Stop':
       next.status = 'idle';
-      next.activeTool = undefined;
+      next.activeTools = undefined;
       clearWaiting(next);
-      if (ev.lastResponse) next.lastResponse = ev.lastResponse;
+      if (ev.lastResponse) next.lastReply = ev.lastResponse;
       break;
 
     case 'SessionEnd':
       next.status = 'ended';
-      next.activeTool = undefined;
+      next.activeTools = undefined;
       clearWaiting(next);
       break;
   }
@@ -122,7 +121,7 @@ function waitingFromTool(ev: HookEvent): Waiting {
       typeof o === 'string' ? o : String((o as { label?: string })?.label ?? o));
   }
   return {
-    kind: 'select',
+    kind: 'choice',
     text: (input && input.question) || ev.message || `${ev.tool} needs an answer`,
     options: options.length ? options : ['yes', 'no'],
   };

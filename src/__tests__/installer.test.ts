@@ -23,6 +23,7 @@ test('installer: detect, wire claude+cursor hooks, credentials, uninstall', asyn
   const settings = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8'));
   assert.ok(settings.hooks && Object.keys(settings.hooks as object).length > 0);
 
+  assert.equal(inst.loadCredential(), undefined); // no credential file yet → undefined
   inst.saveCredential('secret');
   assert.equal(inst.loadCredential()?.token, 'secret');
 

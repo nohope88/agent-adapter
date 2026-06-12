@@ -12,7 +12,7 @@ const HOST = os.hostname().split('.')[0];
 
 test('hub: ingest → roster(waiting) → answer rejects(no-target) → capability gate', async () => {
   const { Hub } = await import('../hub'); // lazy so env is applied first
-  const hub = new Hub({ local: true });
+  const hub = new Hub({});
   await hub.start();
   try {
     // 1. inject a waiting claude-code session over the test /ingest endpoint

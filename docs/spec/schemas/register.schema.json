@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcommander.dev/acap/1.0/register.schema.json",
+  "title": "ACAP registration / capability declaration",
+  "description": "Body of POST /v1/agents/register and the `accepted` echo in the hello payload. Declares one agent instance's identity and capabilities.",
+  "type": "object",
+  "required": ["v", "acap", "kind", "agentId", "level", "capabilities", "provides"],
+  "properties": {
+    "v": { "const": 1 },
+    "acap": {
+      "description": "ACAP version the adapter implements.",
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$"
+    },
+    "kind": {
+      "description": "Stable agent-type slug, lowercase kebab-case. Registry-governed.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "agentId": {
+      "description": "Unique-within-tenant instance id. RECOMMENDED form kind:host:disc.",
+      "type": "string",
+      "minLength": 1
+    },
+    "level": {
+      "description": "Declared conformance level. MUST be consistent with capabilities/provides.",
+      "type": "string",
+      "enum": ["L0", "L1", "L2", "L3"]
+    },
+    "capabilities": {
+      "description": "Command intents this adapter accepts. L0 MUST be empty.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["prompt", "answer", "interrupt", "mode"] }
+    },
+    "provides": {
+      "description": "Canonical status field keys this adapter populates.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "title", "cwd", "branch", "model", "mode", "classification",
+          "activeTool", "tokens", "context", "cost", "waiting", "todos",
+          "workflow", "lastPrompt", "lastReply", "errorCount", "attention"
+        ]
+      }
+    },
+    "agent": {
+      "description": "Optional descriptive metadata for the dashboard.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "version": { "type": "string" },
+        "icon": { "type": "string", "format": "uri" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "level": { "const": "L0" } } },
+      "then": { "properties": { "capabilities": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "level": { "const": "L1" } } },
+      "then": { "properties": { "capabilities": { "contains": { "const": "prompt" } } } }
+    }
+  ],
+  "additionalProperties": true
+}

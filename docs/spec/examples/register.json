@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "acap": "1.0",
+  "kind": "codex",
+  "agentId": "codex:ci-box:4471",
+  "level": "L1",
+  "capabilities": ["prompt"],
+  "provides": ["title", "activeTool", "model", "tokens", "cost"],
+  "agent": {
+    "displayName": "Codex",
+    "version": "codex-cli/0.21.0",
+    "icon": "https://agentcommander.dev/icons/codex.svg"
+  }
+}

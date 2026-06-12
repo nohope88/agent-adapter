@@ -3,7 +3,7 @@ import { InjectSpec } from '../injector';
 
 /**
  * One descriptor per agent kind. Adding a provider = drop a folder with a
- * manifest.json + a descriptor like these (design.html §08 "one folder").
+ * manifest.json + a descriptor like these (ACAP spec §7 adapter interface).
  */
 export interface AdapterDescriptor {
   kind: string;

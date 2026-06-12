@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcommander.dev/acap/1.0/status.schema.json",
+  "title": "ACAP canonical agent status (adapter → server)",
+  "description": "Full current snapshot for one agent instance. Sent as the `data` of a type:status envelope. Only agentId, kind, status, updatedAt are required; all other fields are optional and gated by `provides`. Each status is a full snapshot — consumers replace, never merge.",
+  "type": "object",
+  "required": ["agentId", "kind", "status", "updatedAt"],
+  "properties": {
+    "agentId": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "status": {
+      "type": "string",
+      "enum": ["idle", "busy", "waiting", "error", "ended"]
+    },
+    "updatedAt": {
+      "description": "Milliseconds since Unix epoch when this snapshot was produced.",
+      "type": "integer"
+    },
+
+    "attention": { "type": "string", "enum": ["needsYou", "running", "idle"] },
+    "title": { "type": "string" },
+    "cwd": { "type": "string" },
+    "branch": { "type": "string" },
+    "model": { "type": "string" },
+    "mode": { "type": "string" },
+    "classification": { "type": "string", "enum": ["plain", "loop", "workflow"] },
+
+    "activeTools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "inputPreview": { "type": "string" },
+          "startedAt": { "type": "integer", "description": "ms epoch" }
+        },
+        "additionalProperties": true
+      }
+    },
+
+    "tokens": {
+      "type": "object",
+      "description": "Per-session cumulative token counts; de-cumulated from running-total sources.",
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 },
+        "cacheRead": { "type": "integer", "minimum": 0 },
+        "cacheWrite": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+
+    "context": {
+      "type": "object",
+      "properties": {
+        "used": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+
+    "cost": {
+      "type": "object",
+      "properties": { "usd": { "type": "number", "minimum": 0 } },
+      "additionalProperties": true
+    },
+
+    "waiting": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["approval", "input", "choice"] },
+        "text": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+
+    "todos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "status"],
+        "properties": {
+          "title": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "in_progress", "completed"] }
+        },
+        "additionalProperties": true
+      }
+    },
+
+    "workflow": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "label": { "type": "string" },
+            "iteration": { "type": "integer", "minimum": 0 },
+            "phaseCurrent": { "type": "integer", "minimum": 0 },
+            "phaseTotal": { "type": "integer", "minimum": 0 },
+            "subagents": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string" },
+                  "desc": { "type": "string" },
+                  "state": { "type": "string", "enum": ["running", "done", "pending"] },
+                  "currentTool": { "type": "string" }
+                },
+                "additionalProperties": true
+              }
+            },
+            "tasks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "subject": { "type": "string" },
+                  "status": { "type": "string" },
+                  "blockedBy": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+
+    "lastPrompt": { "type": "string" },
+    "lastReply": { "type": "string" },
+    "errorCount": { "type": "integer", "minimum": 0 },
+    "lastStopReason": { "type": "string" },
+    "startedAt": { "type": "integer", "description": "ms epoch" },
+    "pid": { "type": "integer" }
+  },
+
+  "allOf": [
+    {
+      "description": "When status is waiting, the waiting object MUST be present.",
+      "if": { "properties": { "status": { "const": "waiting" } } },
+      "then": { "required": ["waiting"] }
+    }
+  ],
+
+  "additionalProperties": true
+}

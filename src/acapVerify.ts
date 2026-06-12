@@ -12,7 +12,7 @@ export interface VerifyResult {
 }
 
 /**
- * acap-verify (design.html §08): static conformance check of every adapter
+ * acap-verify (ACAP spec §11 levels / conformance.md): static conformance check of every adapter
  * descriptor against the protocol — levels, capabilities, inject spec, hook
  * recipe shape. A new provider must pass this before it's listed.
  */

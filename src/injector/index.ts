@@ -21,8 +21,8 @@ export class Injector {
   constructor(private binding: BindingMap) {}
 
   async dispatch(cmd: Command, spec: InjectSpec): Promise<Ack> {
-    const ack = (status: Ack['status'], detail?: string): Ack =>
-      ({ v: SCHEMA_V, cmdId: cmd.cmdId, status, detail });
+    const ack = (status: Ack['status'], detail?: string, reason?: string): Ack =>
+      ({ v: SCHEMA_V, cmdId: cmd.cmdId, status, detail, reason });
 
     const target = this.binding.resolve(sessionIdOf(cmd.agentId));
     if (!target && spec.channel !== 'none') return ack('nosession', 'no binding for session');
@@ -46,11 +46,11 @@ export class Injector {
       }
 
       // channel === 'none'
-      return staged ? ack('delivered', 'hookReturn') : ack('rejected', 'adapter is read-only');
+      return staged ? ack('delivered', 'hookReturn') : ack('rejected', 'adapter is read-only', 'unsupported-intent');
     } catch (e) {
-      if (e instanceof NoTargetError) return ack('rejected', 'no inject target');
+      if (e instanceof NoTargetError) return ack('rejected', 'no inject target', 'agent-error');
       log.error('dispatch failed', String(e));
-      return ack('rejected', String((e as Error).message || e));
+      return ack('rejected', String((e as Error).message || e), 'agent-error');
     }
   }
 

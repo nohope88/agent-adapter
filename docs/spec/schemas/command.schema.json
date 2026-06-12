@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcommander.dev/acap/1.0/command.schema.json",
+  "title": "ACAP command payload (server → adapter)",
+  "description": "The `data` of a type:cmd envelope. The Commander MUST only send an intent the adapter declared in accepted.capabilities.",
+  "type": "object",
+  "required": ["cmdId", "intent"],
+  "properties": {
+    "cmdId": {
+      "description": "Unique command id; the unit of idempotency and ack correlation.",
+      "type": "string",
+      "minLength": 1
+    },
+    "intent": {
+      "type": "string",
+      "enum": ["prompt", "answer", "interrupt", "mode"]
+    },
+    "source": {
+      "description": "Human-readable provenance for audit/logs. MUST NOT drive authz (already authorized by the Commander).",
+      "type": "string"
+    },
+    "prompt": { "type": "string", "description": "Required when intent == prompt." },
+    "answer": {
+      "description": "Required when intent == answer. Matches a waiting.options value, or free text for waiting.kind == input.",
+      "type": ["string", "null"]
+    },
+    "mode": {
+      "description": "Required when intent == mode.",
+      "type": ["string", "null"]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "intent": { "const": "prompt" } } },
+      "then": { "required": ["prompt"] }
+    },
+    {
+      "if": { "properties": { "intent": { "const": "answer" } } },
+      "then": { "required": ["answer"] }
+    },
+    {
+      "if": { "properties": { "intent": { "const": "mode" } } },
+      "then": { "required": ["mode"] }
+    }
+  ],
+  "additionalProperties": true
+}

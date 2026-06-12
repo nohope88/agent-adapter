@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcommander.dev/acap/1.0/ack.schema.json",
+  "title": "ACAP command acknowledgement (adapter → server)",
+  "description": "The `data` of a type:ack envelope. Exactly one ack MUST be sent per received cmd, correlated by cmdId.",
+  "type": "object",
+  "required": ["cmdId", "status"],
+  "properties": {
+    "cmdId": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["delivered", "rejected", "nosession", "duplicate"]
+    },
+    "reason": {
+      "description": "Machine-readable reason, primarily for status=rejected.",
+      "type": "string",
+      "examples": ["unsupported-intent", "bad-answer", "agent-error"]
+    },
+    "detail": {
+      "description": "Free-text human detail for logs.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

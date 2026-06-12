@@ -15,7 +15,6 @@ import { logger } from './util/log';
 const log = logger('hub');
 
 export interface HubOpts {
-  local: boolean;
   commanderUrl?: string;
   credential?: Credential;
 }
@@ -41,7 +40,6 @@ export class Hub {
     );
     this.uplink = new Uplink({
       commanderUrl: opts.commanderUrl,
-      local: opts.local,
       credential: opts.credential,
       adapters: this.adapters,
       snapshotProvider: () => this.store.roster(),
@@ -71,7 +69,7 @@ export class Hub {
 
     log.info('hub up', {
       adapters: this.adapters.map((a) => a.kind),
-      mode: this.opts.local ? 'local' : 'uplink',
+      mode: this.opts.credential ? 'uplink' : 'standalone',
     });
   }
 
@@ -95,9 +93,9 @@ export class Hub {
   async handleCommand(cmd: Command): Promise<Ack> {
     const kind = cmd.agentId.split(':')[0];
     const adapter = byKind(kind);
-    if (!adapter) return ack(cmd, 'rejected', `unknown kind ${kind}`);
+    if (!adapter) return ack(cmd, 'rejected', 'unsupported-intent', `unknown kind ${kind}`);
     if (!adapter.capabilities.includes(cmd.intent)) {
-      return ack(cmd, 'rejected', `intent ${cmd.intent} not supported by ${kind}`);
+      return ack(cmd, 'rejected', 'unsupported-intent', `intent ${cmd.intent} not supported by ${kind}`);
     }
     return this.injector.dispatch(cmd, adapter.inject);
   }
@@ -132,7 +130,7 @@ export class Hub {
         const cmd: Command = {
           v: SCHEMA_V, cmdId: b.cmdId || rid(), ts: new Date().toISOString(),
           agentId: b.agentId, source: b.source || 'cli', intent: b.intent,
-          prompt: b.prompt, answer: b.answer, mode: b.mode,
+          prompt: b.prompt, answer: b.answer ?? undefined, mode: b.mode ?? undefined,
         };
         json(res, 200, await this.handleCommand(cmd));
       } catch (e) { json(res, 400, { error: String(e) }); }
@@ -163,8 +161,8 @@ export class Hub {
   }
 }
 
-function ack(cmd: Command, status: Ack['status'], detail?: string): Ack {
-  return { v: SCHEMA_V, cmdId: cmd.cmdId, status, detail };
+function ack(cmd: Command, status: Ack['status'], reason?: string, detail?: string): Ack {
+  return { v: SCHEMA_V, cmdId: cmd.cmdId, status, reason, detail };
 }
 function json(res: http.ServerResponse, code: number, body: unknown): void {
   const s = JSON.stringify(body);

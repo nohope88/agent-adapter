@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcommander.dev/acap/1.0/hello.schema.json",
+  "title": "ACAP hello payload (server → adapter)",
+  "description": "The `data` of the single hello message the Commander sends right after the WS upgrade.",
+  "type": "object",
+  "required": ["acap", "accepted", "heartbeatSec"],
+  "properties": {
+    "acap": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+    "sessionId": {
+      "description": "Opaque id for this connection, for correlation/logs.",
+      "type": "string"
+    },
+    "accepted": {
+      "description": "Capabilities the Commander will actually route to this adapter; MAY narrow what was registered. Authoritative.",
+      "$ref": "register.schema.json"
+    },
+    "heartbeatSec": {
+      "description": "Server ping cadence in seconds.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "maxEnvelopeBytes": {
+      "description": "Largest envelope the Commander will accept.",
+      "type": "integer",
+      "minimum": 4096,
+      "default": 65536
+    },
+    "minStatusIntervalMs": {
+      "description": "Floor between status messages per agent.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 250
+    }
+  },
+  "additionalProperties": true
+}
