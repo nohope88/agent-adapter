@@ -201,7 +201,9 @@ function cloudStream(req, res) {
       else if (r.ok) {
         const arr = pickArray(await r.json().catch(() => ({})));
         idIndex.clear();
-        sse(res, 'roster', arr.map(mapAgent));
+        // Hide the per-kind ":adapter" connection holders — show only real sessions.
+        const real = arr.filter((a) => !String(a.agent_id || '').endsWith(':adapter'));
+        sse(res, 'roster', real.map(mapAgent));
       } else {
         sse(res, 'srverr', { status: r.status });
       }

@@ -75,6 +75,7 @@ test('Uplink: full happy path', async () => {
   u.sendStatus(st({ agentId: 'claude-code:h:buf', sessionId: 'buf' }));
   assert.ok(!sent().includes('"type":"status"'), 'nothing sent before hello');
   ws.msg(hello());
+  await tick();                                  // each session lazily registers, then its status flushes
   // flush: claude-code roster + buffered drained; gemini filtered out
   assert.ok(sent().includes('claude-code:h:s'));
   assert.ok(sent().includes('claude-code:h:buf'));
@@ -197,9 +198,10 @@ test('Uplink: minStatusIntervalMs coalesces rapid statuses', async () => {
   ws.open();
   ws.msg(hello({ minStatusIntervalMs: 1000 }));
   MockWS.sent = [];
-  u.sendStatus(st({ status: 'idle', updatedAt: 1 }));      // first → immediate
+  u.sendStatus(st({ status: 'idle', updatedAt: 1 }));      // new session → lazy register
+  await tick();                                            // register lands → first status sent
   assert.equal(MockWS.sent.length, 1);
-  u.sendStatus(st({ status: 'busy', updatedAt: 2 }));      // within floor → coalesced (sets flushTimer)
+  u.sendStatus(st({ status: 'busy', updatedAt: 2 }));      // registered now, within floor → coalesced (sets flushTimer)
   u.sendStatus(st({ status: 'error', updatedAt: 3 }));     // still coalesced (flushTimer already set)
   assert.equal(MockWS.sent.length, 1, 'coalesced, not sent yet');
   conn().drainPending();                                   // trailing flush
@@ -237,7 +239,8 @@ test('Uplink: heartbeat/expiry timers fire, send errors are caught, pending flus
   const ws2 = MockWS.last();
   ws2.open();
   ws2.msg(hello({ minStatusIntervalMs: 1000 }));
-  b.u.sendStatus(st({ updatedAt: 1 }));              // immediate
+  b.u.sendStatus(st({ updatedAt: 1 }));              // new session → lazy register
+  await tick();                                      // register lands → first status sent
   b.u.sendStatus(st({ status: 'busy', updatedAt: 2 })); // coalesced → flushTimer pending
   ws2.close(1000);                                  // clearTransientTimers clears the pending flushTimer
   await b.restore();
@@ -253,6 +256,81 @@ test('Uplink: cmd dedup remembers, rejects repeats, and evicts beyond the cap', 
   for (let i = 0; i < 1100; i++) c.rememberCmd('k' + i); // overflow → eviction branch
   assert.equal(c.rememberCmd('fresh'), true);
   await restore();
+});
+
+test('Uplink: lazy per-session registration registers a new session before streaming it', async () => {
+  const registers: string[] = [];
+  const fetchImpl = async (_url: string, init: any) => {
+    registers.push(JSON.parse(init.body).agentId);
+    return { ok: true, json: async () => ({ v: 1, wsToken: 'tok', wsUrl: 'wss://cmd/v1/agent', heartbeatSec: 30 }) };
+  };
+  const { u, restore } = await boot({ fetchImpl });
+  u.start();
+  await tick();
+  const ws = MockWS.last();
+  ws.open();
+  ws.msg(hello());
+  assert.ok(registers.length === 1 && registers[0].endsWith(':adapter'), 'only the connection holder registered so far');
+  u.sendStatus(st({ agentId: 'claude-code:h:s1', sessionId: 's1', status: 'busy' }));
+  await tick();
+  assert.ok(registers.includes('claude-code:h:s1'), 'session registered before streaming');
+  assert.ok(MockWS.sent.join().includes('claude-code:h:s1') && MockWS.sent.join().includes('"status":"busy"'));
+  // a second status for the same session does NOT re-register
+  registers.length = 0;
+  u.sendStatus(st({ agentId: 'claude-code:h:s1', sessionId: 's1', status: 'idle' }));
+  await tick();
+  assert.deepEqual(registers, [], 'already-registered session is not re-registered');
+  await restore();
+});
+
+test('Uplink: concurrent statuses for a new session coalesce to one register, newest emitted', async () => {
+  const { u, restore } = await boot();
+  u.start();
+  await tick();
+  const ws = MockWS.last();
+  ws.open();
+  ws.msg(hello());
+  MockWS.sent = [];
+  u.sendStatus(st({ agentId: 'claude-code:h:r', sessionId: 'r', status: 'idle', updatedAt: 1 }));  // starts register
+  u.sendStatus(st({ agentId: 'claude-code:h:r', sessionId: 'r', status: 'busy', updatedAt: 2 }));  // registering → coalesced
+  await tick();
+  const sent = MockWS.sent.join();
+  assert.ok(sent.includes('claude-code:h:r') && sent.includes('"status":"busy"'), 'newest snapshot emitted once');
+  await restore();
+});
+
+test('Uplink: session register resolving after close does not send; a failing register is caught', async () => {
+  // (a) socket drops while a session register is in flight → resolved register early-returns
+  const a = await boot();
+  a.u.start();
+  await tick();
+  const wsA = MockWS.last();
+  wsA.open();
+  wsA.msg(hello());
+  a.u.sendStatus(st({ agentId: 'claude-code:h:late', sessionId: 'late' }));  // register in flight
+  wsA.close(1000);                                                          // connection drops first
+  MockWS.sent = [];
+  await tick();                                                            // register resolves → !connected → return
+  assert.ok(!MockWS.sent.join().includes('claude-code:h:late'), 'no status after close');
+  await a.restore();
+
+  // (b) a session register that rejects is caught (connection register ok, session register 500s)
+  let n = 0;
+  const b = await boot({ fetchImpl: async () => {
+    n += 1;
+    if (n === 1) return { ok: true, json: async () => ({ v: 1, wsToken: 'tok', wsUrl: 'wss://cmd/v1/agent' }) };
+    return { ok: false, status: 500, text: async () => 'nope' };
+  } });
+  b.u.start();
+  await tick();
+  const wsB = MockWS.last();
+  wsB.open();
+  wsB.msg(hello());
+  MockWS.sent = [];
+  b.u.sendStatus(st({ agentId: 'claude-code:h:fail', sessionId: 'fail' }));  // session register → 500 → .catch
+  await tick();
+  assert.ok(!MockWS.sent.join().includes('claude-code:h:fail'), 'failed register → nothing streamed');
+  await b.restore();
 });
 
 test('Uplink: connect() guards on closing before and after register', async () => {

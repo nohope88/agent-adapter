@@ -54,6 +54,9 @@ class KindConn {
   private pending = new Map<string, AgentStatus>();  // coalesced within minStatusMs
   private lastSentAt = new Map<string, number>();
   private seenCmds = new Map<string, number>();      // cmdId → expiresAt (dedup)
+  private sessionRegistered = new Set<string>();     // session agentIds registered on this connection (spec §7)
+  private sessionRegistering = new Set<string>();    // session registers in flight
+  private awaitingReg = new Map<string, AgentStatus>(); // newest snapshot to emit once its register lands
 
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private expiryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -90,13 +93,8 @@ class KindConn {
   // ── connection lifecycle ─────────────────────────────────────
   private async connect(): Promise<void> {
     if (this.closing) return;
-    const reg: Register = {
-      v: SCHEMA_V, acap: ACAP_VERSION, kind: this.adapter.kind,
-      agentId: `${this.adapter.kind}:${hostId()}:adapter`,
-      level: this.adapter.level,
-      capabilities: this.adapter.capabilities,
-      provides: this.adapter.provides,
-    };
+    // The per-kind connection holder; session agentIds are registered lazily (§7).
+    const reg: Register = this.regBody(`${this.adapter.kind}:${hostId()}:adapter`);
     let wsUrl: string;
     try {
       const res = await restRegister(this.commanderUrl, this.tenantKey, reg);
@@ -181,6 +179,9 @@ class KindConn {
     this.connected = false;
     this.helloReceived = false;
     this.ws = null;
+    this.sessionRegistered.clear();
+    this.sessionRegistering.clear();
+    this.awaitingReg.clear();
     this.clearTransientTimers();
     if (this.closing) return;
     const code = ev?.code;
@@ -219,8 +220,44 @@ class KindConn {
   }
 
   private emitStatus(s: AgentStatus): void {
+    if (!this.sessionRegistered.has(s.agentId)) { this.registerSession(s); return; }
     this.lastSentAt.set(s.agentId, Date.now());
     this.send(envelope('status', toWireStatus(s), s.agentId));
+  }
+
+  /** The register body for one agentId at this kind's declared capabilities. */
+  private regBody(agentId: string): Register {
+    return {
+      v: SCHEMA_V, acap: ACAP_VERSION, kind: this.adapter.kind, agentId,
+      level: this.adapter.level, capabilities: this.adapter.capabilities, provides: this.adapter.provides,
+    };
+  }
+
+  /**
+   * Per-session lazy registration (spec §7 / register-granularity): the Commander
+   * silently drops status for an agentId it never saw a register for, so register
+   * each session once — over REST — before streaming it, reusing this kind's WS.
+   * Concurrent statuses for the same id coalesce to the newest, emitted once the
+   * register lands; if the socket dropped meanwhile, it re-registers on reconnect.
+   */
+  private registerSession(s: AgentStatus): void {
+    this.awaitingReg.set(s.agentId, s);
+    if (this.sessionRegistering.has(s.agentId)) return;
+    this.sessionRegistering.add(s.agentId);
+    restRegister(this.commanderUrl, this.tenantKey, this.regBody(s.agentId))
+      .then(() => {
+        this.sessionRegistering.delete(s.agentId);
+        if (!this.connected || !this.helloReceived) return; // dropped mid-register → re-register on reconnect
+        this.sessionRegistered.add(s.agentId);
+        const latest = this.awaitingReg.get(s.agentId);
+        this.awaitingReg.delete(s.agentId);
+        if (latest) this.emitStatus(latest);
+      })
+      .catch((e) => {
+        this.sessionRegistering.delete(s.agentId);
+        this.awaitingReg.delete(s.agentId);
+        log.warn(`session register ${s.agentId} failed`, String(e));
+      });
   }
 
   /** On hello, push the full roster for this kind (resync), then drain the offline buffer. */
