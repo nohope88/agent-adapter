@@ -1,8 +1,9 @@
 name: CI
 
 # Runs on every push and PR. Builds, runs acap-verify, and runs the functional
-# test suite across macOS / Linux / Windows on Node 22 & 24. A separate Linux-only
-# `coverage` job enforces 100% line coverage on the core library modules.
+# test suite across macOS / Linux / Windows on Node 22 (the supported floor).
+# A separate Linux-only `coverage` job enforces 100% line coverage on the core
+# library modules.
 on:
   push:
     branches: ["**"]
@@ -18,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ["22.x", "24.x"]
+        node: ["22.x"]
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +57,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24.x"
+          node-version: "22.x"
           cache: npm
 
       - name: Install
