@@ -33,13 +33,15 @@ function dial(p: { ingestSock: string }, isWin: boolean, port: () => number): Di
 test('ingest: accepts events, returns gate decision, tolerates bad input', async () => {
   const { IngestServer } = await import('../ingest');
   const { PATHS, isWindows, readIngestPort } = await import('../util/paths');
-  const to = dial(PATHS, isWindows, readIngestPort);
   const events: unknown[] = [];
   const srv = new IngestServer(
     (ev) => { events.push(ev); },
     (ev) => (ev.event === 'PermissionRequest' ? { permission: 'deny' } : null),
   );
   await srv.start();
+  // Resolve the endpoint AFTER start(): on Windows the port is only published
+  // once the server has bound its ephemeral port.
+  const to = dial(PATHS, isWindows, readIngestPort);
   try {
     const reply = await send(to, JSON.stringify({
       v: 1, kind: 'claude-code', event: 'PermissionRequest', sessionId: 's1', message: 'ok?',

@@ -6,6 +6,7 @@ import path from 'path';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-cx-'));
 process.env.HOME = home;
+process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
 const sessionsDir = path.join(home, '.codex', 'sessions');
 fs.mkdirSync(sessionsDir, { recursive: true });
 

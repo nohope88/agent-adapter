@@ -6,6 +6,7 @@ import path from 'path';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-inst-'));
 process.env.HOME = home;
+process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
 process.env.AGENT_ADAPTER_SKIP_DAEMON = '1';
 
 test('installer: detect, wire claude+cursor hooks, credentials, uninstall', async () => {
