@@ -132,7 +132,7 @@ npm test           # unit + hub integration tests (Node's built-in runner)
 npm run ci         # build + selfcheck + test (what GitHub Actions runs)
 ```
 
-`.github/workflows/ci.yml` runs build + `selfcheck` (acap-verify) + tests on every push/PR across **macOS / Linux / Windows × Node 22 & 24**, so integration breakage is caught before merge. See `CLAUDE.md` + `ARCHITECTURE.md` to extend the codebase.
+`.github/workflows/ci.yml` runs build + `selfcheck` (acap-verify) + tests on every push/PR across **macOS / Linux / Windows on Node 22**, so integration breakage is caught before merge. See `CLAUDE.md` + `ARCHITECTURE.md` to extend the codebase.
 
 ## Notes / limitations
 - `pty` react-back needs the agent in a **tmux** pane (or launched under a managed pty). Without tmux, a non-tmux terminal agent returns `no inject target` — wire managed-pty (`node-pty`, an optional dep) or run agents in tmux.

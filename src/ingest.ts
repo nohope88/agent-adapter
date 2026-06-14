@@ -1,7 +1,7 @@
 import net from 'net';
 import fs from 'fs';
 import { HookEvent } from './protocol';
-import { PATHS, isWindows, ensureRoot } from './util/paths';
+import { PATHS, isWindows, ensureRoot, writeIngestPort, clearIngestPort } from './util/paths';
 import { logger } from './util/log';
 
 const log = logger('ingest');
@@ -35,14 +35,20 @@ export class IngestServer {
         this.server!.off('error', onErr);
         // Unix socket: lock it to the owner. (No-op on the Windows TCP path.)
         if (!isWindows) { try { fs.chmodSync(PATHS.ingestSock, 0o600); } catch { /* noop */ } }
-        log.info(isWindows
-          ? `listening on tcp 127.0.0.1:${PATHS.ingestTcpPort}`
-          : `listening on unix ${PATHS.ingestSock}`);
+        // Publish the bound endpoint so the hook script can find it. On the
+        // Windows TCP path the port is ephemeral (0 → OS-assigned), so two
+        // servers (e.g. concurrent test workers) never collide on a fixed port.
+        const addr = this.server!.address();
+        const port = addr && typeof addr === 'object' ? addr.port : PATHS.ingestTcpPort;
+        writeIngestPort(port);
+        log.info(isWindows ? `listening on tcp 127.0.0.1:${port}` : `listening on unix ${PATHS.ingestSock}`);
         resolve();
       };
       if (!isWindows) { try { if (fs.existsSync(PATHS.ingestSock)) fs.unlinkSync(PATHS.ingestSock); } catch { /* noop */ } }
-      // Windows has no unix sockets in the hook's shell → TCP loopback; POSIX → unix socket.
-      const opts = isWindows ? { port: PATHS.ingestTcpPort, host: '127.0.0.1' } : { path: PATHS.ingestSock };
+      // Windows has no unix sockets in the hook's shell → TCP loopback (ephemeral
+      // port unless pinned via env); POSIX → unix socket.
+      const winPort = process.env.AGENT_ADAPTER_INGEST_PORT ? PATHS.ingestTcpPort : 0;
+      const opts = isWindows ? { port: winPort, host: '127.0.0.1' } : { path: PATHS.ingestSock };
       this.server!.listen(opts, onListening);
     });
   }
@@ -90,6 +96,7 @@ export class IngestServer {
     if (!this.server) return;
     await new Promise<void>((r) => this.server!.close(() => r()));
     if (!isWindows) { try { fs.unlinkSync(PATHS.ingestSock); } catch { /* noop */ } }
+    clearIngestPort();
     this.server = null;
   }
 }

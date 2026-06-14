@@ -10,6 +10,7 @@ const CLI = path.join(__dirname, '..', 'cli.js');
 test('installer: AGENT_ADAPTER_BIN, cursor version, wire failure', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-cov-'));
   process.env.HOME = home;
+  process.env.USERPROFILE = home; // Windows: os.homedir() reads USERPROFILE, not HOME
   process.env.AGENT_ADAPTER_BIN = '/usr/bin/false';
   process.env.AGENT_ADAPTER_SKIP_DAEMON = '1';
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });

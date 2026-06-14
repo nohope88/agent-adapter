@@ -79,7 +79,18 @@ test('hook: cursor file_path-only payload maps to the Edit shape', () => {
 test('hook: an unparseable gate reply falls back to the neutral default', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-hook5-'));
   const server = net.createServer((c) => { c.on('data', () => c.write('garbage-not-json\n')); });
-  await new Promise<void>((resolve) => server.listen(path.join(root, 'ingest.sock'), resolve));
+  await new Promise<void>((resolve) => {
+    // Windows: bind TCP and publish the port so the child's readIngestPort finds
+    // it; POSIX: the unix socket the child derives from AGENT_ADAPTER_HOME.
+    if (process.platform === 'win32') {
+      server.listen(0, '127.0.0.1', () => {
+        fs.writeFileSync(path.join(root, 'ingest.port'), String((server.address() as net.AddressInfo).port));
+        resolve();
+      });
+    } else {
+      server.listen(path.join(root, 'ingest.sock'), resolve);
+    }
+  });
   try {
     // Full env (so NODE_V8_COVERAGE propagates) + async spawn (so the in-process
     // server can answer): the child reads garbage, JSON.parse throws, done(null).
@@ -105,15 +116,16 @@ test('hook: gate decision paths via ingest', async () => {
   const adapterHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-hook3-'));
   process.env.AGENT_ADAPTER_HOME = adapterHome;
   const { IngestServer } = await import('../ingest');
-  const { PATHS } = await import('../util/paths');
+  const { PATHS, isWindows, readIngestPort } = await import('../util/paths');
   const gate = () => ({ permission: 'deny', continue: false });
   let active = new IngestServer(() => {}, gate);
   await active.start();
-  assert.ok(fs.existsSync(PATHS.ingestSock));
+  if (!isWindows) assert.ok(fs.existsSync(PATHS.ingestSock));
   try {
     const post = (event: string, reply: string, sessionId: string) =>
       new Promise<{ stdout: string; stderr: string; status: number | null }>((resolve, reject) => {
-        const sock = net.connect(PATHS.ingestSock);
+        // Windows: dial the server's published (ephemeral) port; POSIX: socket.
+        const sock = isWindows ? net.connect(readIngestPort(), '127.0.0.1') : net.connect(PATHS.ingestSock);
         let buf = '';
         const fail = setTimeout(() => {
           sock.destroy();

@@ -18,7 +18,7 @@ Done & verified:
 - Full TypeScript codebase under `src/` — `npm run build` compiles with zero errors.
 - `node dist/cli.js selfcheck` → all 6 adapters pass conformance (acap-verify; was the `verify` subcommand).
 - `npm test` → **120 tests pass**; `npm run test:coverage` → **100% line coverage**. `npm run ci` reproduces the GitHub Actions gate and ran green locally.
-- `.github/workflows/ci.yml` runs build + selfcheck (acap-verify) + test on macOS/Linux/Windows × Node 22 & 24 on push & PR.
+- `.github/workflows/ci.yml` runs build + selfcheck (acap-verify) + test on macOS/Linux/Windows on Node 22 on push & PR.
 - Smoke-tested live: inject a waiting session → roster shows `waiting` → `answer` → `rejected: no inject target` (correct — no real terminal bound) → capability gate works. Auto-detects whichever of `~/.claude ~/.codex ~/.cursor ~/.gemini …` exist.
 
 Pick up here (NOT done):
