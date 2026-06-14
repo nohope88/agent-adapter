@@ -105,15 +105,16 @@ test('hook: gate decision paths via ingest', async () => {
   const adapterHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-hook3-'));
   process.env.AGENT_ADAPTER_HOME = adapterHome;
   const { IngestServer } = await import('../ingest');
-  const { PATHS } = await import('../util/paths');
+  const { PATHS, isWindows, readIngestPort } = await import('../util/paths');
   const gate = () => ({ permission: 'deny', continue: false });
   let active = new IngestServer(() => {}, gate);
   await active.start();
-  assert.ok(fs.existsSync(PATHS.ingestSock));
+  if (!isWindows) assert.ok(fs.existsSync(PATHS.ingestSock));
   try {
     const post = (event: string, reply: string, sessionId: string) =>
       new Promise<{ stdout: string; stderr: string; status: number | null }>((resolve, reject) => {
-        const sock = net.connect(PATHS.ingestSock);
+        // Windows: dial the server's published (ephemeral) port; POSIX: socket.
+        const sock = isWindows ? net.connect(readIngestPort(), '127.0.0.1') : net.connect(PATHS.ingestSock);
         let buf = '';
         const fail = setTimeout(() => {
           sock.destroy();

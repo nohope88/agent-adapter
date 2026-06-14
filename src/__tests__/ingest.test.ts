@@ -8,9 +8,11 @@ import path from 'path';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-ingest-'));
 process.env.AGENT_ADAPTER_HOME = path.join(home, '.agent-adapter');
 
-function send(sockPath: string, line: string): Promise<string | null> {
+type Dial = [string] | [number, string];
+
+function send(dial: Dial, line: string): Promise<string | null> {
   return new Promise((resolve, reject) => {
-    const sock = net.connect(sockPath);
+    const sock = dial.length === 1 ? net.connect(dial[0]) : net.connect(dial[0], dial[1]);
     let buf = '';
     const done = (v: string | null) => { try { sock.destroy(); } catch { /* noop */ } resolve(v); };
     const t = setTimeout(() => done(buf.trim() || null), 500);
@@ -22,9 +24,16 @@ function send(sockPath: string, line: string): Promise<string | null> {
   });
 }
 
+/** Where a client should connect: unix socket on POSIX, the server's published
+ *  (ephemeral) TCP port on Windows. */
+function dial(p: { ingestSock: string }, isWin: boolean, port: () => number): Dial {
+  return isWin ? [port(), '127.0.0.1'] : [p.ingestSock];
+}
+
 test('ingest: accepts events, returns gate decision, tolerates bad input', async () => {
   const { IngestServer } = await import('../ingest');
-  const { PATHS } = await import('../util/paths');
+  const { PATHS, isWindows, readIngestPort } = await import('../util/paths');
+  const to = dial(PATHS, isWindows, readIngestPort);
   const events: unknown[] = [];
   const srv = new IngestServer(
     (ev) => { events.push(ev); },
@@ -32,14 +41,14 @@ test('ingest: accepts events, returns gate decision, tolerates bad input', async
   );
   await srv.start();
   try {
-    const reply = await send(PATHS.ingestSock, JSON.stringify({
+    const reply = await send(to, JSON.stringify({
       v: 1, kind: 'claude-code', event: 'PermissionRequest', sessionId: 's1', message: 'ok?',
     }));
     assert.match(reply || '', /deny/);
     assert.equal((events[0] as { sessionId: string }).sessionId, 's1');
 
-    await send(PATHS.ingestSock, 'not-json');
-    await send(PATHS.ingestSock, JSON.stringify({ event: 'Stop' }));
+    await send(to, 'not-json');
+    await send(to, JSON.stringify({ event: 'Stop' }));
     assert.equal(events.length, 1);
   } finally {
     await srv.stop();
@@ -48,14 +57,14 @@ test('ingest: accepts events, returns gate decision, tolerates bad input', async
 
 test('ingest: gate throw and onEvent throw are logged, not fatal', async () => {
   const { IngestServer } = await import('../ingest');
-  const { PATHS } = await import('../util/paths');
+  const { PATHS, isWindows, readIngestPort } = await import('../util/paths');
   const srv = new IngestServer(
     () => { throw new Error('boom'); },
     () => { throw new Error('gate-boom'); },
   );
   await srv.start();
   try {
-    await send(PATHS.ingestSock, JSON.stringify({
+    await send(dial(PATHS, isWindows, readIngestPort), JSON.stringify({
       v: 1, kind: 'x', event: 'SessionStart', sessionId: 's',
     }));
   } finally {

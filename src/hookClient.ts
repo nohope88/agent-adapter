@@ -1,6 +1,6 @@
 import net from 'net';
 import { HookEvent, CanonicalEvent } from './protocol';
-import { PATHS, isWindows } from './util/paths';
+import { PATHS, isWindows, readIngestPort } from './util/paths';
 
 /**
  * Runs as `agent-adapter hook --kind <k> --event <canon> [--reply <neutral>]`.
@@ -81,8 +81,10 @@ function renderDecision(neutral: string, decision: Record<string, unknown> | nul
 /** Send one event line; optionally read one reply line within `waitMs`. */
 function postEvent(ev: HookEvent, waitMs: number): Promise<Record<string, unknown> | null> {
   return new Promise((resolve, reject) => {
+    // Windows: discover the server's actual (ephemeral) port; POSIX: unix socket.
+    const port = readIngestPort();
     const sock = isWindows
-      ? net.connect(PATHS.ingestTcpPort, '127.0.0.1')
+      ? net.connect(port, '127.0.0.1')
       : net.connect(PATHS.ingestSock);
     let buf = '';
     let settled = false;
