@@ -13,7 +13,9 @@ const ACTIVE_MS = 10_000; // a session file touched within 10s = working
 const openclaw: AdapterDescriptor = {
   kind: 'openclaw',
   level: 'L1',
-  capabilities: ['prompt', 'answer', 'interrupt'],
+  // L1 (Promptable) accepts exactly `prompt` (ACAP §11). Add answer/interrupt
+  // here only together with L2 once the native control endpoint is wired.
+  capabilities: ['prompt'],
   provides: ['status'],
   inject: { channel: 'native', hookReturn: false },
   detectDir: AGENT_DIRS.openclaw,

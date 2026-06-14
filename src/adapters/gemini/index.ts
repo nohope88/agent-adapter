@@ -7,7 +7,11 @@ import { AGENT_DIRS } from '../../util/paths';
 const gemini: AdapterDescriptor = {
   kind: 'gemini',
   level: 'L0',
-  capabilities: ['prompt'],
+  // L0 (Observer) is status-only — it MUST declare no capabilities (ACAP §11;
+  // the Commander rejects register with "L0 must declare no capabilities"
+  // otherwise). Add `prompt` here only when promoted to L1 with a verified
+  // inject path.
+  capabilities: [],
   provides: ['status'],
   inject: { channel: 'pty', hookReturn: false },
   detectDir: AGENT_DIRS.gemini,
