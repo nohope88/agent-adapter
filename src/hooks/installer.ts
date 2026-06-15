@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { ALL_ADAPTERS, detected } from '../adapters/registry';
-import { registerPlatformDaemon } from './installer-daemon';
+import { registerPlatformDaemon, stopPlatformDaemon } from './installer-daemon';
 import { AdapterDescriptor, HookFormat } from '../adapters/types';
 import { Credential } from '../runtime';
 import { PATHS, ensureRoot } from '../util/paths';
@@ -132,6 +132,9 @@ function neutralReply(kind: string, nativeEvent: string): string | null {
 // ── daemon registration (best-effort) ──────────────────────────
 export function registerDaemon(): void {
   registerPlatformDaemon();
+}
+export function stopDaemon() {
+  return stopPlatformDaemon();
 }
 
 // ── credentials ────────────────────────────────────────────────

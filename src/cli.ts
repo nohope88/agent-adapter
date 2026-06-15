@@ -11,6 +11,7 @@ export async function main(): Promise<void> {
     case 'install':         return setup();
     case 'login':           return login(rest);
     case 'logout':          return logout();
+    case 'stop':            return stop();           // stop the installed daemon service
     case 'verify':          return reconcile();
     case 'web':             return web(rest);    // open the dashboard against the running daemon
     // internal — not advertised in help:
@@ -136,9 +137,24 @@ async function reconcile(): Promise<void> {
   process.stdout.write(`\nIn sync. Hooks wired for: ${wired.join(', ') || '(none)'}\n`);
 }
 
+async function stop(): Promise<void> {
+  const res = (await import('./hooks/installer')).stopDaemon();
+  switch (res.kind) {
+    case 'stopped':
+      process.stdout.write(`Adapter service stopped (${res.target}).\n`);
+      return;
+    case 'not-running':
+      process.stdout.write(`No running service to stop (${res.target}). If you ran \`aca start\` in a terminal, stop it with Ctrl-C.\n`);
+      return;
+    case 'unsupported':
+      process.stdout.write('No service manager on this platform. If you ran `aca start` in a terminal, stop it with Ctrl-C.\n');
+      return;
+  }
+}
+
 async function uninstall(): Promise<void> {
   (await import('./hooks/installer')).uninstallHooks();
-  process.stdout.write('Hooks removed. (Daemon: launchctl/systemctl/schtasks remove manually if desired.)\n');
+  process.stdout.write('Hooks removed. Run `aca stop` to stop the running daemon.\n');
 }
 
 async function selfcheck(): Promise<void> {
@@ -183,6 +199,7 @@ function help(): void {
   setup                                           detect agents, wire their hooks, register the daemon
   login --token <cmdr_ak_…> [--commander <url>]   store the Commander credential
   logout                                          remove the stored credential
+  stop                                            stop the running adapter service (launchd/systemd/schtasks)
   verify                                          re-scan agents; add/remove hooks to match what's installed
   web   [--web-port <n>] [--commander <url>] [--open]   open the dashboard (attaches to the running daemon)
 `);
