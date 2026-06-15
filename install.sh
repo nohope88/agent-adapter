@@ -12,20 +12,72 @@ REPO_URL="${AGENT_ADAPTER_REPO:-https://github.com/nohope88/agent-adapter.git}"
 SRC_DIR="${AGENT_ADAPTER_SRC:-$HOME/.agent-adapter/src}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
 ACTION="${1:-install}"
+RERUN="curl -fsSL https://nohope88.github.io/agent-adapter/install.sh | bash"
 
 say() { printf '\033[1;34m▸\033[0m %s\n' "$*"; }
-die() { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+# Print a headline (first arg) plus any number of indented detail lines, then
+# abort. (Run via `curl … | bash` this ends the child shell, not your terminal.)
+die() {
+  printf '\n\033[1;31m✗ %s\033[0m\n' "$1" >&2
+  shift
+  for line in "$@"; do printf '\033[31m  %s\033[0m\n' "$line" >&2; done
+  printf '\n' >&2
+  exit 1
+}
 
-command -v node >/dev/null 2>&1 || die "node >= 22 is required (https://nodejs.org)"
+# Suggest a one-line install command for $1 (node|git) using whatever package
+# manager is present; prints nothing if none is recognised.
+pkg_hint() {
+  case "$1" in
+    git)
+      if   command -v brew    >/dev/null 2>&1; then echo "brew install git"
+      elif command -v apt-get >/dev/null 2>&1; then echo "sudo apt-get install -y git"
+      elif command -v dnf     >/dev/null 2>&1; then echo "sudo dnf install -y git"
+      elif command -v pacman  >/dev/null 2>&1; then echo "sudo pacman -S --noconfirm git"
+      fi ;;
+    node)
+      # Distro node packages are often < 22, so prefer brew / the official build.
+      if command -v brew >/dev/null 2>&1; then echo "brew install node"; fi ;;
+  esac
+}
+
+# Abort with install guidance for a missing prerequisite.
+# need_tool <name> <download-url> [install-hint]
+need_tool() {
+  if [ -n "${3:-}" ]; then
+    die "$1 is required but was not found on this machine." \
+        "Install it with:  $3" \
+        "Or download it:   $2" \
+        "" "Then re-run:" "  $RERUN"
+  else
+    die "$1 is required but was not found on this machine." \
+        "Download it:  $2" \
+        "" "Then re-run:" "  $RERUN"
+  fi
+}
+
+command -v node >/dev/null 2>&1 || need_tool "Node.js (>= 22)" "https://nodejs.org/en/download" "$(pkg_hint node)"
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$NODE_MAJOR" -ge 22 ] || die "node >= 22 required (found $(node -v))"
+if [ "$NODE_MAJOR" -lt 22 ]; then
+  hint="$(pkg_hint node)"
+  if [ -n "$hint" ]; then
+    die "Node.js >= 22 is required, but this machine has $(node -v)." \
+        "Update it with:  $hint" \
+        "Or download it:  https://nodejs.org/en/download" \
+        "" "Then re-run:" "  $RERUN"
+  else
+    die "Node.js >= 22 is required, but this machine has $(node -v)." \
+        "Download it:  https://nodejs.org/en/download" \
+        "" "Then re-run:" "  $RERUN"
+  fi
+fi
 
 # Resolve a source checkout: run from the one we're in, else clone the repo
 # (the `curl | bash` path has no checkout on disk, so bootstrap one).
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/package.json" ]; then
   PROJ="$SCRIPT_DIR"
 else
-  command -v git >/dev/null 2>&1 || die "git is required to bootstrap (https://git-scm.com)"
+  command -v git >/dev/null 2>&1 || need_tool "Git" "https://git-scm.com/downloads" "$(pkg_hint git)"
   if [ -d "$SRC_DIR/.git" ]; then
     say "Updating ${SRC_DIR}…"
     git -C "$SRC_DIR" fetch --depth 1 origin main --quiet
