@@ -68,3 +68,48 @@ jobs:
 
       - name: Test + 100% line coverage gate
         run: npm run test:coverage
+
+  # Smoke-test the bootstrap installers end to end — the scripts a user runs
+  # first, which the TS suite never executes. Runs them against the local
+  # checkout (no clone, since package.json is present): install.sh on
+  # Linux/macOS, install.ps1 under Windows PowerShell (`shell: powershell` =
+  # Windows PowerShell 5.1 / Desktop, NOT pwsh 7) so it reproduces the
+  # 5.1-specific native-arg quoting that broke the Node version check.
+  # AGENT_ADAPTER_SKIP_DAEMON stops it registering a background service on the
+  # runner; npm_config_omit=optional skips node-pty's native build.
+  installer:
+    name: installer smoke · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      AGENT_ADAPTER_SKIP_DAEMON: "1"
+      npm_config_omit: optional
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+
+      - name: Run install.sh (bash)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          AGENT_ADAPTER_HOME: ${{ runner.temp }}/aca-home
+        run: |
+          bash install.sh
+          node dist/cli.js selfcheck   # post-condition: the installer built a working CLI
+
+      - name: Run install.ps1 (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          AGENT_ADAPTER_HOME: ${{ runner.temp }}/aca-home
+        run: |
+          .\install.ps1
+          node dist\cli.js selfcheck   # post-condition: built a working CLI — also catches the node -v quoting bug
