@@ -49,7 +49,7 @@ test('cli main: hook, help, login, interrupt usage, unknown', async () => {
   const login = await withMain(['login']);
   assert.ok(login.out.includes('tenant API key'));
 
-  const tok = await withMain(['login', '--token', 't', '--commander', 'wss://x']);
+  const tok = await withMain(['login', '--token', 't']);
   assert.ok(tok.out.includes('Credential saved'));
 
   const intr = await withMain(['interrupt']);

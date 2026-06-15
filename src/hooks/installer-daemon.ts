@@ -28,6 +28,49 @@ export function registerPlatformDaemon(): void {
   }
 }
 
+export type StopResult =
+  | { kind: 'unsupported' }
+  | { kind: 'stopped'; target: string }
+  | { kind: 'not-running'; target: string };
+
+/** The service-manager command that stops the installed daemon on `platform`,
+ *  or null where we register no service. Pure (no spawning) so it's unit-tested
+ *  for every platform on one OS; `stopPlatformDaemon` runs it. */
+export function stopCommand(
+  platform: NodeJS.Platform = process.platform,
+): { cmd: string; args: string[]; target: string } | null {
+  if (platform === 'darwin') {
+    const plist = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.agent-adapter.plist');
+    // KeepAlive=true means `launchctl stop` just relaunches — `unload` is the
+    // only way to actually stop it.
+    return { cmd: 'launchctl', args: ['unload', plist], target: plist };
+  }
+  if (platform === 'linux') {
+    return { cmd: 'systemctl', args: ['--user', 'stop', 'agent-adapter.service'], target: 'agent-adapter.service' };
+  }
+  if (platform === 'win32') {
+    return { cmd: 'schtasks', args: ['/End', '/TN', 'AgentAdapter'], target: 'AgentAdapter' };
+  }
+  return null;
+}
+
+export function stopPlatformDaemon(): StopResult {
+  const c = stopCommand();
+  if (!c) return { kind: 'unsupported' };
+  if (process.env.AGENT_ADAPTER_SKIP_DAEMON) return { kind: 'stopped', target: c.target };
+  // On macOS the unit is a plist file; if it's absent the adapter was never
+  // installed as a service (likely a foreground `aca start`).
+  if (process.platform === 'darwin' && !fs.existsSync(c.target)) return { kind: 'not-running', target: c.target };
+  try {
+    execFileSync(c.cmd, c.args, { stdio: 'ignore' });
+    log.info(`daemon stopped: ${c.target}`);
+    return { kind: 'stopped', target: c.target };
+  } catch (e) {
+    log.warn(`stop: ${c.cmd} ${c.args.join(' ')} failed (already stopped?)`, String(e));
+    return { kind: 'not-running', target: c.target };
+  }
+}
+
 function registerLaunchd(): void {
   const plist = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.agent-adapter.plist');
   const [prog, ...args] = startArgs();

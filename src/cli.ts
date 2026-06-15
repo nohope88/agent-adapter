@@ -11,6 +11,7 @@ export async function main(): Promise<void> {
     case 'install':         return setup();
     case 'login':           return login(rest);
     case 'logout':          return logout();
+    case 'stop':            return stop();           // stop the installed daemon service
     case 'verify':          return reconcile();
     case 'web':             return web(rest);    // open the dashboard against the running daemon
     // internal — not advertised in help:
@@ -35,13 +36,11 @@ async function start(rest: string[]): Promise<void> {
   const { DEFAULT_COMMANDER } = await import('./commanderClient');
   const credential = loadCredential();
   if (!credential) {
-    process.stderr.write('Not logged in. Run `aca login --token <cmdr_ak_…> [--commander <https-url>]` first.\n');
+    process.stderr.write('Not logged in. Run `aca login --token <cmdr_ak_…>` first.\n');
     process.exit(1);
     return;
   }
-  const commanderUrl = typeof args.commander === 'string'
-    ? args.commander
-    : (process.env.AGENT_ADAPTER_COMMANDER || DEFAULT_COMMANDER);
+  const commanderUrl = process.env.AGENT_ADAPTER_COMMANDER || DEFAULT_COMMANDER;
   const hub = new Hub({ commanderUrl, credential });
   await hub.start();
   process.stdout.write(
@@ -61,9 +60,7 @@ async function web(rest: string[]): Promise<void> {
   const { readControlPort } = await import('./util/paths');
   const { DEFAULT_COMMANDER } = await import('./commanderClient');
   const controlPort = readControlPort();             // published by the running hub; falls back to default
-  const commanderUrl = typeof args.commander === 'string'
-    ? args.commander
-    : (process.env.AGENT_ADAPTER_COMMANDER || DEFAULT_COMMANDER);
+  const commanderUrl = process.env.AGENT_ADAPTER_COMMANDER || DEFAULT_COMMANDER;
   const child = await startWebUi(args, controlPort, commanderUrl);
   if (!child) { process.exit(1); return; }
   process.stdout.write(`Local tab → running daemon on control port ${controlPort}; Cloud tab → ${commanderUrl}\n`);
@@ -136,9 +133,24 @@ async function reconcile(): Promise<void> {
   process.stdout.write(`\nIn sync. Hooks wired for: ${wired.join(', ') || '(none)'}\n`);
 }
 
+async function stop(): Promise<void> {
+  const res = (await import('./hooks/installer')).stopDaemon();
+  switch (res.kind) {
+    case 'stopped':
+      process.stdout.write(`Adapter service stopped (${res.target}).\n`);
+      return;
+    case 'not-running':
+      process.stdout.write(`No running service to stop (${res.target}). If you ran \`aca start\` in a terminal, stop it with Ctrl-C.\n`);
+      return;
+    case 'unsupported':
+      process.stdout.write('No service manager on this platform. If you ran `aca start` in a terminal, stop it with Ctrl-C.\n');
+      return;
+  }
+}
+
 async function uninstall(): Promise<void> {
   (await import('./hooks/installer')).uninstallHooks();
-  process.stdout.write('Hooks removed. (Daemon: launchctl/systemctl/schtasks remove manually if desired.)\n');
+  process.stdout.write('Hooks removed. Run `aca stop` to stop the running daemon.\n');
 }
 
 async function selfcheck(): Promise<void> {
@@ -156,17 +168,6 @@ async function login(rest: string[]): Promise<void> {
   const inst = await import('./hooks/installer');
   if (args.token) {
     const token = String(args.token);
-    // Best-effort fail-fast: verify the key when an http(s) Commander is named.
-    if (typeof args.commander === 'string' && /^https?:\/\//i.test(args.commander)) {
-      try {
-        const { verifyKey } = await import('./commanderClient');
-        const who = await verifyKey(args.commander, token);
-        const acct = who.userEmail || who.userName || who.keyName || 'account';
-        process.stdout.write(`Key verified — ${acct} (acap ${who.acap || '?'}).\n`);
-      } catch (e) {
-        process.stdout.write(`Warning: could not verify key against ${args.commander}: ${String(e)}\n`);
-      }
-    }
     inst.saveCredential(token);
     process.stdout.write('Credential saved — the headless daemon uses it automatically.\n');
     process.stdout.write('Optional dashboard: `aca web`.\n');
@@ -174,17 +175,18 @@ async function login(rest: string[]): Promise<void> {
   }
   process.stdout.write(
     'Login obtains a tenant API key FROM your Commander (dashboard → API keys) — the adapter only holds it.\n' +
-    'Then: aca login --token <cmdr_ak_…> [--commander <https-url>]\n');
+    'Then: aca login --token <cmdr_ak_…>\n');
 }
 
 function help(): void {
   process.stdout.write(`aca — listen & react back to local AI coding agents (ACAP adapter)
 
   setup                                           detect agents, wire their hooks, register the daemon
-  login --token <cmdr_ak_…> [--commander <url>]   store the Commander credential
+  login --token <cmdr_ak_…>                       store the Commander credential
   logout                                          remove the stored credential
+  stop                                            stop the running adapter service (launchd/systemd/schtasks)
   verify                                          re-scan agents; add/remove hooks to match what's installed
-  web   [--web-port <n>] [--commander <url>] [--open]   open the dashboard (attaches to the running daemon)
+  web   [--web-port <n>] [--open]                 open the dashboard (attaches to the running daemon)
 `);
 }
 

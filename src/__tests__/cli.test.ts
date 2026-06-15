@@ -46,7 +46,7 @@ test('cli: login then logout flows', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aa-cli-'));
   const env = { AGENT_ADAPTER_HOME: path.join(home, '.agent-adapter') };
   assert.ok(run(['login'], env).out.includes('tenant API key'));
-  assert.ok(run(['login', '--token', 't', '--commander', 'wss://x'], env).out.includes('Credential saved'));
+  assert.ok(run(['login', '--token', 't'], env).out.includes('Credential saved'));
   assert.ok(run(['logout'], env).out.includes('Logged out'));
   assert.ok(run(['logout'], env).out.includes('Not logged in')); // already gone
 });
