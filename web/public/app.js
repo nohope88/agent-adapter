@@ -13,6 +13,30 @@ function kindBadge(kind) {
   return KIND_BADGE[kind] || (kind || '?').replace(/[^a-z]/gi, '').slice(0, 2).toUpperCase() || '?';
 }
 
+// ACAP level + accepted intents per provider — fixed per kind (mirrors the
+// adapter descriptors in src/adapters/<kind>/index.ts). The status payload
+// doesn't carry these, so the UI keys interaction off this table; if a future
+// payload includes `level`/`capabilities`, capsFor() prefers it automatically.
+const KIND_CAPS = {
+  'claude-code': { level: 'L3', capabilities: ['prompt', 'answer', 'interrupt'] },
+  codex:         { level: 'L2', capabilities: ['prompt', 'answer', 'interrupt'] },
+  cursor:        { level: 'L2', capabilities: ['prompt', 'answer'] },
+  gemini:        { level: 'L0', capabilities: [] },
+  openclaw:      { level: 'L0', capabilities: [] },
+  hermes:        { level: 'L0', capabilities: [] },
+};
+function capsFor(s) {
+  if (s && Array.isArray(s.capabilities)) return { level: s.level || '', capabilities: s.capabilities };
+  return KIND_CAPS[s && s.kind] || { level: (s && s.level) || 'L0', capabilities: [] };
+}
+// Whether the dashboard may push `intent` to this session right now.
+function can(s, intent) {
+  if (s.status === 'ended') return false;                       // nothing to act on
+  if (!capsFor(s).capabilities.includes(intent)) return false;  // capability gate (e.g. cursor has no interrupt)
+  if (mode === 'cloud' && intent === 'interrupt') return false; // Commander bridge is prompt/answer only
+  return true;
+}
+
 const sessions = new Map();   // agentId → AgentStatus
 const cardEls = new Map();    // agentId → <article>
 
@@ -27,6 +51,21 @@ const logoutBtn = document.getElementById('logout');
 const loginErr = document.getElementById('login-err');
 const loginForm = document.getElementById('login-form');
 const tokenForm = document.getElementById('token-form');
+const statusChipsEl = document.getElementById('status-chips');
+const providerSelEl = document.getElementById('provider-filter');
+const DEFAULT_EMPTY = emptyEl.innerHTML;
+
+// ── Filters (status + provider), persisted ────────────────────────
+const STATUS_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'waiting', label: 'Waiting' },
+  { key: 'busy', label: 'Busy' },
+  { key: 'idle', label: 'Idle' },
+  { key: 'error', label: 'Error' },
+  { key: 'ended', label: 'Ended' },
+];
+let statusFilter = localStorage.getItem('aca-web-status') || 'all';
+let providerFilter = localStorage.getItem('aca-web-provider') || 'all';
 
 // ── Mode (local | cloud) ──────────────────────────────────────────
 let mode = localStorage.getItem('aca-web-mode') === 'cloud' ? 'cloud' : 'local';
@@ -93,12 +132,18 @@ function setConn(ok) {
 
 // ── Render ────────────────────────────────────────────────────────
 function render() {
-  const list = [...sessions.values()].sort(
-    (a, b) => (PRIORITY[a.status] - PRIORITY[b.status]) || ((b.updatedAt || 0) - (a.updatedAt || 0)),
-  );
+  const all = [...sessions.values()];
+  const counts = { all: all.length, waiting: 0, busy: 0, idle: 0, error: 0, ended: 0 };
+  for (const s of all) counts[s.status] = (counts[s.status] || 0) + 1;
 
+  const list = all
+    .filter((s) => (statusFilter === 'all' || s.status === statusFilter)
+                && (providerFilter === 'all' || s.kind === providerFilter))
+    .sort((a, b) => (PRIORITY[a.status] - PRIORITY[b.status]) || ((b.updatedAt || 0) - (a.updatedAt || 0)));
+
+  const visible = new Set(list.map((s) => s.agentId));
   for (const [id, el] of cardEls) {
-    if (!sessions.has(id)) { el.remove(); cardEls.delete(id); }
+    if (!visible.has(id)) { el.remove(); cardEls.delete(id); }
   }
 
   let prev = null;
@@ -110,12 +155,58 @@ function render() {
     prev = el;
   }
 
-  const counts = {};
-  for (const s of list) counts[s.status] = (counts[s.status] || 0) + 1;
-  countsEl.textContent = list.length
-    ? Object.keys(PRIORITY).filter((k, i, a) => a.indexOf(k) === i && counts[k]).map((k) => `${counts[k]} ${k}`).join('  ·  ')
-    : '';
+  updateStatusChips(counts);
+  refreshProviderOptions(all);
+
+  const filtering = statusFilter !== 'all' || providerFilter !== 'all';
+  countsEl.textContent = !all.length ? ''
+    : filtering ? `${list.length} of ${all.length} shown`
+    : `${all.length} session${all.length === 1 ? '' : 's'}`;
+  emptyEl.innerHTML = (all.length && !list.length)
+    ? 'No sessions match this filter.<br />Clear the status/provider filter to see all sessions.'
+    : DEFAULT_EMPTY;
   emptyEl.style.display = list.length ? 'none' : 'block';
+}
+
+// ── Filter UI ─────────────────────────────────────────────────────
+function buildStatusChips() {
+  statusChipsEl.innerHTML = '';
+  for (const f of STATUS_FILTERS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.dataset.status = f.key;
+    b.innerHTML = `<span class="chip-label">${f.label}</span><span class="chip-n"></span>`;
+    b.addEventListener('click', () => {
+      statusFilter = f.key;
+      localStorage.setItem('aca-web-status', statusFilter);
+      render();
+    });
+    statusChipsEl.appendChild(b);
+  }
+}
+function updateStatusChips(counts) {
+  for (const b of statusChipsEl.querySelectorAll('.chip')) {
+    const k = b.dataset.status;
+    const n = counts[k] != null ? counts[k] : 0;
+    b.querySelector('.chip-n').textContent = n;
+    b.classList.toggle('chip--on', k === statusFilter);
+    b.classList.toggle('chip--empty', k !== 'all' && n === 0);
+  }
+}
+let providerSig = '';
+function refreshProviderOptions(all) {
+  const kinds = [...new Set(all.map((s) => s.kind).filter(Boolean))].sort();
+  const sig = kinds.join(',');
+  if (sig === providerSig) return;          // options unchanged → don't rebuild (keeps the dropdown open-able)
+  providerSig = sig;
+  if (providerFilter !== 'all' && !kinds.includes(providerFilter)) {
+    providerFilter = 'all';                 // the filtered provider went away
+    localStorage.setItem('aca-web-provider', 'all');
+  }
+  providerSelEl.innerHTML = '<option value="all">All providers</option>'
+    + kinds.map((k) => `<option value="${k}">${k}</option>`).join('');
+  providerSelEl.value = providerFilter;
 }
 
 function buildCard(agentId) {
@@ -123,7 +214,7 @@ function buildCard(agentId) {
   el.className = 'card';
   el.innerHTML = `
     <div class="c-head">
-      <span class="kind"></span>
+      <span class="head-left"><span class="kind"></span><span class="level" title="ACAP conformance level"></span></span>
       <span class="ts"></span>
     </div>
     <div class="c-body">
@@ -143,7 +234,8 @@ function buildCard(agentId) {
       <input class="prompt-input" type="text" placeholder="send a prompt…" />
       <button class="btn icon send" title="Send prompt" aria-label="Send prompt">↑</button>
       <button class="btn icon interrupt" title="Interrupt the agent" aria-label="Interrupt">✕</button>
-    </div>`;
+    </div>
+    <div class="lvl-note hidden"></div>`;
 
   const input = el.querySelector('.prompt-input');
   const sendPrompt = () => {
@@ -165,6 +257,15 @@ function updateCard(el, s) {
   el.querySelector('.ts').textContent = relTime(s.updatedAt);
   el.querySelector('.title').textContent = s.title || s.sessionId || s.agentId;
   el.querySelector('.subtitle').textContent = s.cwd || '';
+
+  const caps = capsFor(s);
+  const lvlEl = el.querySelector('.level');
+  lvlEl.textContent = caps.level || '';
+  lvlEl.dataset.level = caps.level || '';
+
+  const allowPrompt = can(s, 'prompt');
+  const allowAnswer = can(s, 'answer');
+  const allowInterrupt = can(s, 'interrupt');
 
   let clue = '';
   const tool = s.activeTools && s.activeTools[0];
@@ -195,7 +296,9 @@ function updateCard(el, s) {
         const b = document.createElement('button');
         b.className = 'btn opt';
         b.textContent = opt;
-        b.addEventListener('click', () => postCommand(s.agentId, { intent: 'answer', answer: opt }));
+        // Only wire the option when this provider accepts `answer`; otherwise show it disabled.
+        if (allowAnswer) b.addEventListener('click', () => postCommand(s.agentId, { intent: 'answer', answer: opt }));
+        else b.disabled = true;
         row.appendChild(b);
       }
       banner.appendChild(row);
@@ -203,13 +306,27 @@ function updateCard(el, s) {
     region.appendChild(banner);
   }
 
-  // Ended sessions can't be acted on; Cloud is prompt-only so interrupt is off.
-  const ended = s.status === 'ended';
-  for (const b of el.querySelectorAll('.actions .btn, .actions input')) b.disabled = ended;
+  // Interaction follows the provider's ACAP level/capabilities.
+  const input = el.querySelector('.prompt-input');
+  const send = el.querySelector('.send');
   const intr = el.querySelector('.interrupt');
-  if (intr) {
-    intr.disabled = ended || mode === 'cloud';
-    intr.title = mode === 'cloud' ? 'Interrupt unavailable in Cloud (prompt-only)' : 'Interrupt the agent';
+  input.classList.toggle('hidden', !allowPrompt);
+  send.classList.toggle('hidden', !allowPrompt);
+  intr.classList.toggle('hidden', !allowInterrupt);
+  input.disabled = send.disabled = !allowPrompt;
+  intr.disabled = !allowInterrupt;
+
+  // No actionable intents (L0 observer, an ended session, or Cloud's prompt-only
+  // gate leaving nothing) → hide the row and explain why.
+  const actions = el.querySelector('.actions');
+  const note = el.querySelector('.lvl-note');
+  const interactive = allowPrompt || allowInterrupt;
+  actions.classList.toggle('hidden', !interactive);
+  note.classList.toggle('hidden', interactive);
+  if (!interactive) {
+    note.textContent = s.status === 'ended'
+      ? 'Session ended — read-only'
+      : `View-only · ${caps.level || 'L0'} (status only, no react-back)`;
   }
 }
 
@@ -290,6 +407,12 @@ for (const b of document.querySelectorAll('.mode-btn')) {
   b.addEventListener('click', () => switchMode(b.dataset.mode));
 }
 
+providerSelEl.addEventListener('change', () => {
+  providerFilter = providerSelEl.value;
+  localStorage.setItem('aca-web-provider', providerFilter);
+  render();
+});
+
 // ── Helpers ───────────────────────────────────────────────────────
 let toastTimer = null;
 function toast(msg, kind) {
@@ -320,6 +443,7 @@ setInterval(() => {
 
 // ── Boot ──────────────────────────────────────────────────────────
 (async function boot() {
+  buildStatusChips();
   try { config = await (await fetch('/config')).json(); } catch { /* defaults */ }
   applyModeChrome();
   await enterMode();

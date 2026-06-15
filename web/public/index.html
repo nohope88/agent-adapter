@@ -25,6 +25,17 @@
     </div>
   </header>
 
+  <!-- Filter bar (status chips + provider picker); hidden on the login gate -->
+  <nav id="filters" class="filterbar" aria-label="Filters">
+    <div class="chips" id="status-chips" role="group" aria-label="Filter by status"></div>
+    <label class="provider-pick">
+      <span class="provider-label">Provider</span>
+      <select id="provider-filter" aria-label="Filter by provider">
+        <option value="all">All providers</option>
+      </select>
+    </label>
+  </nav>
+
   <!-- Cloud login gate (shown only when mode=cloud and not authenticated) -->
   <section id="login" class="login-wrap">
     <div class="login-card">
