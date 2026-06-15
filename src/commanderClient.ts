@@ -9,7 +9,7 @@
  */
 import { Register, RegisterResponse } from './protocol';
 
-/** The live Commander; override with --commander / AGENT_ADAPTER_COMMANDER. */
+/** The live Commander; override with AGENT_ADAPTER_COMMANDER. */
 export const DEFAULT_COMMANDER = 'https://commander-api.autonomous.ai';
 
 export class CommanderError extends Error {
