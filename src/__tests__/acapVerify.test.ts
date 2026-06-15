@@ -32,6 +32,26 @@ test('declaring capabilities with no inject path fails', () => {
   assert.equal(r.pass, false);
 });
 
+test('L0 declaring any capability fails (Commander rejects it)', () => {
+  const d = {
+    kind: 'obs', level: 'L0', capabilities: ['prompt'], provides: ['status'],
+    inject: { channel: 'pty', hookReturn: false }, detectDir: '/tmp',
+  } as unknown as AdapterDescriptor;
+  const r = verify(d);
+  assert.equal(r.pass, false);
+  assert.ok(r.problems.some((p) => p.includes('L0') && p.includes('no capabilities')));
+});
+
+test('L1 declaring more than ["prompt"] fails', () => {
+  const d = {
+    kind: 'p1', level: 'L1', capabilities: ['prompt', 'answer'], provides: ['status'],
+    inject: { channel: 'native', hookReturn: false }, detectDir: '/tmp',
+  } as unknown as AdapterDescriptor;
+  const r = verify(d);
+  assert.equal(r.pass, false);
+  assert.ok(r.problems.some((p) => p.includes('L1') && p.includes('prompt')));
+});
+
 test('L2 without answer/interrupt and hooks sanity checks fail', () => {
   const d = {
     kind: 'z', level: 'L2', capabilities: ['prompt'], provides: [],

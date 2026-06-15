@@ -9,7 +9,10 @@ const hermes: AdapterDescriptor = {
   // L0 until its control socket is wired here — today it only gets the
   // process-fallback baseline (working/idle), like gemini.
   level: 'L0',
-  capabilities: ['prompt', 'answer', 'interrupt'],
+  // L0 (Observer) MUST declare no capabilities (ACAP §11; the Commander rejects
+  // register otherwise). Restore prompt/answer/interrupt here together with the
+  // raised level once the control socket below makes them real.
+  capabilities: [],
   provides: ['status'],
   inject: { channel: 'native', hookReturn: false },
   detectDir: AGENT_DIRS.hermes,

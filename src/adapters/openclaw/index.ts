@@ -12,8 +12,12 @@ const ACTIVE_MS = 10_000; // a session file touched within 10s = working
  *  endpoint for inject is learned via binding (controlEndpoint) once known. */
 const openclaw: AdapterDescriptor = {
   kind: 'openclaw',
-  level: 'L1',
-  capabilities: ['prompt', 'answer', 'interrupt'],
+  // L0 (Observer) — status only. The native inject path has no controlEndpoint
+  // wired yet (binding never learns one), so a `prompt` cmd can't actually be
+  // delivered. Stay honest at L0 like hermes; restore L1 ["prompt"] in the same
+  // change that wires the controlEndpoint (then L2 with answer/interrupt).
+  level: 'L0',
+  capabilities: [],
   provides: ['status'],
   inject: { channel: 'native', hookReturn: false },
   detectDir: AGENT_DIRS.openclaw,

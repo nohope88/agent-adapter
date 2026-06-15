@@ -32,6 +32,16 @@ export function verify(a: AdapterDescriptor): VerifyResult {
   if (a.capabilities.length && a.inject.channel === 'none' && !a.inject.hookReturn) {
     problems.push('declares capabilities but has no inject channel or hook-return');
   }
+  // Level ↔ capability consistency (spec §11 table). The Commander enforces this
+  // on register — declaring more than the level allows fails with 400
+  // invalid_register, so these are the upper bounds, not just lower ones.
+  if (a.level === 'L0' && a.capabilities.length) {
+    problems.push('L0 (Observer) must declare no capabilities');
+  }
+  if (a.level === 'L1' &&
+      !(a.capabilities.length === 1 && a.capabilities[0] === 'prompt')) {
+    problems.push('L1 (Promptable) capabilities must be exactly ["prompt"]');
+  }
   // L1+ must accept prompt; L2+ must accept answer or interrupt.
   if (a.level !== 'L0' && !a.capabilities.includes('prompt')) {
     problems.push(`${a.level} should accept "prompt"`);
