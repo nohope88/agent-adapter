@@ -5,6 +5,8 @@
  * adapter and a Commander evolve independently; new fields are additive/optional.
  */
 
+import { redactPreview } from './util/scrub';
+
 export const ACAP_VERSION = '1.0';
 export const SCHEMA_V = 1;
 
@@ -170,8 +172,10 @@ export function envelope<T>(type: EnvelopeType, data: T, id?: string): Envelope<
 /** RECOMMENDED truncation bound for preview strings (spec §8.7.4) so one status stays well under maxEnvelopeBytes. */
 export const MAX_PREVIEW_BYTES = 256;
 
-function truncate(s: string): string {
-  return s.length > MAX_PREVIEW_BYTES ? s.slice(0, MAX_PREVIEW_BYTES) : s;
+/** Prepare a preview string for the wire: opt-in secret scrub, then truncate (§8.7.4). */
+function wirePreview(s: string): string {
+  const r = redactPreview(s);
+  return r.length > MAX_PREVIEW_BYTES ? r.slice(0, MAX_PREVIEW_BYTES) : r;
 }
 
 /**
@@ -187,15 +191,15 @@ export function toWireStatus(s: AgentStatus): Record<string, unknown> {
     updatedAt: s.updatedAt,
   };
   if (s.startedAt != null) out.startedAt = s.startedAt;
-  if (s.title != null) out.title = s.title;
-  if (s.cwd != null) out.cwd = s.cwd;
+  if (s.title != null) out.title = redactPreview(s.title);
+  if (s.cwd != null) out.cwd = redactPreview(s.cwd);
   if (s.branch != null) out.branch = s.branch;
   if (s.model != null) out.model = s.model;
   if (s.mode != null) out.mode = s.mode;
   if (s.activeTools && s.activeTools.length) {
     out.activeTools = s.activeTools.map((t) => {
       const tool: Record<string, unknown> = { name: t.name };
-      if (t.inputPreview != null) tool.inputPreview = truncate(t.inputPreview);
+      if (t.inputPreview != null) tool.inputPreview = wirePreview(t.inputPreview);
       if (t.startedAt != null) tool.startedAt = t.startedAt;
       return tool;
     });
@@ -203,9 +207,9 @@ export function toWireStatus(s: AgentStatus): Record<string, unknown> {
   if (s.context) out.context = s.context;
   if (s.cost) out.cost = s.cost;
   if (s.waiting) {
-    out.waiting = { kind: s.waiting.kind, text: truncate(s.waiting.text), options: s.waiting.options };
+    out.waiting = { kind: s.waiting.kind, text: wirePreview(s.waiting.text), options: s.waiting.options };
   }
-  if (s.lastReply != null) out.lastReply = truncate(s.lastReply);
-  if (s.lastPrompt != null) out.lastPrompt = truncate(s.lastPrompt);
+  if (s.lastReply != null) out.lastReply = wirePreview(s.lastReply);
+  if (s.lastPrompt != null) out.lastPrompt = wirePreview(s.lastPrompt);
   return out;
 }
