@@ -129,4 +129,4 @@ node dist/cli.js setup   # wires hooks + registers the headless daemon
 say "Done. Log in to start the adapter:"
 say "  aca login --token <cmdr_ak_…>"
 say "Re-sync agents anytime:  aca verify"
-say "Optional dashboard:  aca start --web"
+say "Optional dashboard:  aca web"

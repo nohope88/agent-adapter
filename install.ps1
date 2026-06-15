@@ -118,7 +118,7 @@ try {
   Say "Done. Log in to start the adapter:"
   Say "  aca login --token <cmdr_ak_…>"
   Say "Re-sync agents anytime:  aca verify"
-  Say "Optional dashboard:  aca start --web"
+  Say "Optional dashboard:  aca web"
 }
 catch {
   # Render our own aborts cleanly (NeedTool/Die already printed the detail);
