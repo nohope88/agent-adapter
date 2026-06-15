@@ -23,9 +23,17 @@ A failed `:adapter` register means the whole kind connection never opens, so
 |---|---|---|---|---|
 | gemini  | L0 | `["prompt"]` | `[]` | `[]` |
 | hermes  | L0 | `["prompt","answer","interrupt"]` | `[]` | `[]` |
-| openclaw | L1 | `["prompt","answer","interrupt"]` | `["prompt"]` | `["prompt"]` |
+| openclaw | L1 | `["prompt","answer","interrupt"]` | `["prompt"]` | `[]` (L0 — see below) |
 
 claude-code (L3), codex (L2), cursor (L2) were already consistent.
+
+> **Update (2026-06-15):** openclaw was further demoted from `L1 ["prompt"]` to
+> `L0 []`. Its `native` inject path has no `controlEndpoint` (binding never
+> learns one — the poller doesn't emit it), so it can't actually deliver a
+> `prompt` — behaviourally identical to hermes. `L1 ["prompt"]` would be
+> spec-legal on register but would advertise a capability that fails at
+> delivery. Restore `L1 ["prompt"]` together with the change that wires the
+> controlEndpoint.
 
 `src/acapVerify.ts` only checked *lower* bounds (L1+ needs `prompt`, L2+ needs
 `answer`/`interrupt`). It now also enforces the *upper* bounds the Commander
