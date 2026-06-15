@@ -49,7 +49,16 @@ try {
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     NeedTool 'Node.js (>= 22)' 'OpenJS.NodeJS.LTS' 'https://nodejs.org/en/download'
   }
-  $major = [int](node -p 'process.versions.node.split(".")[0]')
+  # Read the major from `node -v` (e.g. "v24.16.0"). We DON'T use
+  # `node -p '…split(".")…'`: Windows PowerShell strips the embedded double
+  # quotes when handing the arg to node, so that expression throws and the check
+  # silently read 0 — wrongly demanding an upgrade even on Node 24.
+  # @(…)[0] forces one line even if a shim adds output; the regex takes the
+  # leading number; we fail with a clear message (not crash) if it's unreadable.
+  $nodeVer = @(node -v)[0]
+  if ($nodeVer -match '(\d+)') { $major = [int]$Matches[1] }
+  else { Die @("Couldn't read the Node.js version (node -v returned '$nodeVer').",
+               "Make sure Node.js >= 22 is installed:  https://nodejs.org/en/download") }
   if ($major -lt 22) {
     $lines = @("Node.js >= 22 is required, but this machine has $(node -v).")
     if (Get-Command winget -ErrorAction SilentlyContinue) {
