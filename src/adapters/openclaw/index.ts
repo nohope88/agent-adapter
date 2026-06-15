@@ -22,7 +22,7 @@ const openclaw: AdapterDescriptor = {
   inject: { channel: 'native', hookReturn: false },
   detectDir: AGENT_DIRS.openclaw,
   poll: (emit) => {
-    const seen = new Map<string, boolean>(); // sessionId → wasActive
+    const seen = new Set<string>(); // sessionIds we've emitted SessionStart for
     const tick = () => {
       let files: string[] = [];
       try {
@@ -36,11 +36,13 @@ const openclaw: AdapterDescriptor = {
         const active = now - mtime < ACTIVE_MS;
         if (!seen.has(sessionId)) {
           emit(mkEvent(sessionId, 'SessionStart'));
+          seen.add(sessionId);
         }
-        if (seen.get(sessionId) !== active) {
-          emit(mkEvent(sessionId, active ? 'UserPromptSubmit' : 'Stop'));
-          seen.set(sessionId, active);
-        }
+        // Emit every tick, not just on change: the store throttles upstream to
+        // visible changes but refreshes each session's liveness on every apply,
+        // so a quiet but still-present session file is never falsely pruned to
+        // "ended". (Mirrors the process-fallback heartbeat.)
+        emit(mkEvent(sessionId, active ? 'UserPromptSubmit' : 'Stop'));
       }
     };
     const timer = setInterval(tick, 2000);

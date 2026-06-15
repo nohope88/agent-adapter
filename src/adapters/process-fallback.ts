@@ -23,7 +23,6 @@ const BUSY_CPU = 8; // pcpu above this → "working", else "idle"
  */
 export class ProcessFallback {
   private timer: NodeJS.Timeout | null = null;
-  private last = new Map<string, 'working' | 'idle'>(); // sessionId → state
   private alive = new Set<string>();
 
   constructor(
@@ -57,19 +56,20 @@ export class ProcessFallback {
           this.emit({ v: 1, kind, event: 'SessionStart', sessionId, pid: row.pid,
             title: `${kind} (pid ${row.pid})` });
         }
+        // Emit every scan, not just on change: the store throttles upstream to
+        // visible changes but refreshes each session's liveness on every apply,
+        // so a steadily-idle but still-running process never trips the store's
+        // stale→ended prune. (Without this, an idle session emits one Stop and
+        // then goes silent, and is falsely reported "ended" after staleMs.)
         const state = row.cpu >= BUSY_CPU ? 'working' : 'idle';
-        if (this.last.get(sessionId) !== state) {
-          this.last.set(sessionId, state);
-          this.emit({ v: 1, kind, event: state === 'working' ? 'UserPromptSubmit' : 'Stop',
-            sessionId, pid: row.pid });
-        }
+        this.emit({ v: 1, kind, event: state === 'working' ? 'UserPromptSubmit' : 'Stop',
+          sessionId, pid: row.pid });
       }
     }
     // processes that vanished → end their sessions
     for (const sessionId of [...this.alive]) {
       if (!seenNow.has(sessionId)) {
         this.alive.delete(sessionId);
-        this.last.delete(sessionId);
         const kind = guessKind(sessionId, this.kinds);
         this.emit({ v: 1, kind, event: 'SessionEnd', sessionId });
       }
