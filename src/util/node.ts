@@ -1,7 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 
-const STABLE_CANDIDATES = ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node'];
+const STABLE_CANDIDATES = [
+  // macOS / Linux
+  '/opt/homebrew/bin/node',
+  '/usr/local/bin/node',
+  '/usr/bin/node',
+  // Windows — official installer; nvm-windows junction (resolves to the active version)
+  'C:\\Program Files\\nodejs\\node.exe',
+  'C:\\Program Files\\nvm\\nodejs\\node.exe',
+];
 
 /**
  * A node path that survives version upgrades. `process.execPath` is the
