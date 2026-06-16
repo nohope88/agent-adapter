@@ -2,7 +2,7 @@
 
 Watch your local AI coding agents (**Claude Code · Codex · Cursor · Gemini CLI · OpenClaw · Hermes**) in real time — `working / idle / waiting` — and **react back** (answer an approval, confirm, prompt, interrupt).
 
-It runs headless on your machine and uplinks to a **Commander** (default `https://commander-api.autonomous.ai`), where you see status and send commands back.
+It runs headless on your machine and uplinks to a **Commander**, where you see status and send commands back.
 
 ---
 
