@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { stableNode } from '../util/node';
 
-test('stableNode: a packaged agent-adapter binary is returned as-is', () => {
-  assert.equal(stableNode('/opt/agent-adapter', () => { throw new Error('unused'); }), '/opt/agent-adapter');
+test('stableNode: a packaged aca binary is returned as-is', () => {
+  assert.equal(stableNode('/opt/aca', () => { throw new Error('unused'); }), '/opt/aca');
 });
 
 test('stableNode: returns the stable symlink that resolves to the running node', () => {
