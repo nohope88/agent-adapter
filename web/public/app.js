@@ -146,13 +146,27 @@ function render() {
     if (!visible.has(id)) { el.remove(); cardEls.delete(id); }
   }
 
+  // Reordering moves DOM nodes, which blurs a focused input inside a card.
+  // The Cloud roster polls every couple seconds, so remember the caret and only
+  // relocate cards that are actually out of place — otherwise typing is impossible.
+  const active = document.activeElement;
+  const focused = active && active.classList && active.classList.contains('prompt-input')
+    ? { el: active, start: active.selectionStart, end: active.selectionEnd }
+    : null;
+
   let prev = null;
   for (const s of list) {
     let el = cardEls.get(s.agentId);
     if (!el) { el = buildCard(s.agentId); cardEls.set(s.agentId, el); }
     updateCard(el, s);
-    if (prev) prev.after(el); else board.prepend(el);
+    const inPlace = prev ? el.previousElementSibling === prev : board.firstElementChild === el;
+    if (!inPlace) { if (prev) prev.after(el); else board.prepend(el); }
     prev = el;
+  }
+
+  if (focused && document.activeElement !== focused.el && document.contains(focused.el)) {
+    focused.el.focus();
+    try { focused.el.setSelectionRange(focused.start, focused.end); } catch (_) { /* noop */ }
   }
 
   updateStatusChips(counts);
