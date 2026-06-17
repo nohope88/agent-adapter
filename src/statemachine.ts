@@ -82,15 +82,20 @@ export function reduce(prev: AgentStatus | undefined, ev: HookEvent): AgentStatu
       };
       break;
 
-    case 'Notification':
+    case 'Notification': {
       // Claude Code fires this when blocked waiting on the user.
       next.status = 'waiting';
+      const incoming = ev.options && ev.options.length ? ev.options : [];
+      // A generic, optionless notification must not clobber a richer waiting
+      // already captured (e.g. an AskUserQuestion choice with real options).
+      if (next.waiting && next.waiting.options.length && !incoming.length) break;
       next.waiting = {
         kind: 'input',
         text: ev.message || 'Agent needs your input',
-        options: ev.options && ev.options.length ? ev.options : [],
+        options: incoming,
       };
       break;
+    }
 
     case 'Stop':
       next.status = 'idle';
@@ -114,17 +119,38 @@ export function statusPriority(s: Status): number {
 }
 
 function waitingFromTool(ev: HookEvent): Waiting {
-  const input = ev.toolInput as { question?: string; options?: unknown } | undefined;
+  const input = ev.toolInput as
+    | { question?: string; options?: unknown; questions?: unknown }
+    | undefined;
+
+  // Current Claude Code AskUserQuestion schema:
+  //   { questions: [{ question, header, multiSelect, options: [{ label, description }] }] }
+  // Each question is a tab in the TUI; flatten labels so the dashboard shows real choices.
+  if (input && Array.isArray(input.questions) && input.questions.length) {
+    const qs = input.questions as Array<{ question?: string; header?: string; options?: unknown }>;
+    const text =
+      qs.map((q) => q.question || q.header).filter(Boolean).join(' · ') ||
+      `${ev.tool} needs an answer`;
+    return { kind: 'choice', text, options: qs.flatMap((q) => optionLabels(q.options)) };
+  }
+
+  // Legacy flat schema: { question, options: [...] }.
   let options: string[] = ev.options || [];
   if (!options.length && input && Array.isArray(input.options)) {
-    options = (input.options as unknown[]).map((o) =>
-      typeof o === 'string' ? o : String((o as { label?: string })?.label ?? o));
+    options = optionLabels(input.options);
   }
   return {
     kind: 'choice',
     text: (input && input.question) || ev.message || `${ev.tool} needs an answer`,
     options: options.length ? options : ['yes', 'no'],
   };
+}
+
+/** Normalize a tool's options (strings or {label} objects) to a flat string[]. */
+function optionLabels(options: unknown): string[] {
+  if (!Array.isArray(options)) return [];
+  return options.map((o) =>
+    typeof o === 'string' ? o : String((o as { label?: string })?.label ?? o));
 }
 
 function clearWaiting(s: AgentStatus): void {

@@ -117,6 +117,61 @@ test('previewOf handles string input and empty options on Notification', () => {
   assert.equal(s.waiting?.options.length, 0);
 });
 
+test('AskUserQuestion questions[] schema → question text + flattened option labels', () => {
+  const s = reduce(undefined, ev({
+    event: 'PreToolUse', tool: 'AskUserQuestion',
+    toolInput: {
+      questions: [
+        { question: 'Chế độ?', header: 'Chế độ', options: [{ label: '2 người' }, { label: 'AI' }] },
+        { question: 'Luật?', options: ['Chuẩn'] },
+      ],
+    },
+  }));
+  assert.equal(s.status, 'waiting');
+  assert.equal(s.waiting?.kind, 'choice');
+  assert.equal(s.waiting?.text, 'Chế độ? · Luật?');
+  assert.deepEqual(s.waiting?.options, ['2 người', 'AI', 'Chuẩn']);
+});
+
+test('AskUserQuestion questions[] falls back to header, then to tool text; missing options → []', () => {
+  const h = reduce(undefined, ev({
+    event: 'PreToolUse', tool: 'AskUserQuestion',
+    toolInput: { questions: [{ header: 'Nền tảng', options: [] }] },
+  }));
+  assert.equal(h.waiting?.text, 'Nền tảng');
+  assert.deepEqual(h.waiting?.options, []);
+
+  const t = reduce(undefined, ev({
+    event: 'PreToolUse', tool: 'AskUserQuestion',
+    toolInput: { questions: [{}] },
+  }));
+  assert.equal(t.waiting?.text, 'AskUserQuestion needs an answer');
+  assert.deepEqual(t.waiting?.options, []);
+});
+
+test('Notification does not clobber a richer AskUserQuestion waiting', () => {
+  let s = reduce(undefined, ev({
+    event: 'PreToolUse', tool: 'AskUserQuestion',
+    toolInput: { questions: [{ question: 'Mode?', options: [{ label: 'A' }, { label: 'B' }] }] },
+  }));
+  assert.deepEqual(s.waiting?.options, ['A', 'B']);
+  // A generic notification arriving while the choice is open keeps the choice.
+  s = reduce(s, ev({ event: 'Notification', message: 'Claude needs your permission' }));
+  assert.equal(s.status, 'waiting');
+  assert.equal(s.waiting?.text, 'Mode?');
+  assert.deepEqual(s.waiting?.options, ['A', 'B']);
+});
+
+test('Notification with its own options still updates the banner', () => {
+  let s = reduce(undefined, ev({
+    event: 'PreToolUse', tool: 'AskUserQuestion',
+    toolInput: { questions: [{ question: 'Mode?', options: [{ label: 'A' }] }] },
+  }));
+  s = reduce(s, ev({ event: 'Notification', message: 'pick', options: ['x', 'y'] }));
+  assert.equal(s.waiting?.text, 'pick');
+  assert.deepEqual(s.waiting?.options, ['x', 'y']);
+});
+
 test('previewOf returns undefined when toolInput is not JSON-serializable', () => {
   // BigInt makes JSON.stringify throw → the catch returns undefined.
   const s = reduce(undefined, ev({ event: 'PreToolUse', tool: 'Bash', toolInput: { big: 10n } as never }));
